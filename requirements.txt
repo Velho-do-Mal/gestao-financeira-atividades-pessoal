@@ -10,6 +10,5 @@ Pillow==11.0.0
 schedule==1.2.2
 pytz==2024.2
 babel==2.16.0
-streamlit-aggrid==1.0.5
-st-aggrid==0.3.4.post3
+python-dateutil==2.9.0
 numpy==2.1.3
