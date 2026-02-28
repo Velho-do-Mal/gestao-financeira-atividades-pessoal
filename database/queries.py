@@ -186,15 +186,15 @@ def get_transactions(start_date=None, end_date=None, status=None, flow_type=None
     conditions = ["1=1"]
     params = []
     if start_date:
-        conditions.append("due_date >= %s"); params.append(start_date)
+        conditions.append("t.due_date >= %s"); params.append(start_date)
     if end_date:
-        conditions.append("due_date <= %s"); params.append(end_date)
+        conditions.append("t.due_date <= %s"); params.append(end_date)
     if status and status != 'Todos':
-        conditions.append("status = %s"); params.append(status)
+        conditions.append("t.status = %s"); params.append(status)
     if flow_type and flow_type != 'Todos':
-        conditions.append("flow_type = %s"); params.append(flow_type)
+        conditions.append("t.flow_type = %s"); params.append(flow_type)
     if is_forecast is not None:
-        conditions.append("is_forecast = %s"); params.append(is_forecast)
+        conditions.append("t.is_forecast = %s"); params.append(is_forecast)
 
     where = " AND ".join(conditions)
     rows = execute_query(f"""
