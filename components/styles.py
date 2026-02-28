@@ -19,9 +19,7 @@ html, body, [class*="css"] {
 
 
 /* ─── Ocultar navegação automática multipage do Streamlit ── */
-[data-testid="stSidebarNav"],
-[data-testid="collapsedControl"],
-section[data-testid="stSidebar"] > div:first-child > div > div:first-child {
+[data-testid="stSidebarNav"] {
     display: none !important;
 }
 
