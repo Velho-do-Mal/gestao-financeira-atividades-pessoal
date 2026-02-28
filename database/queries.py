@@ -390,21 +390,55 @@ def get_activities():
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
 
+def _safe_int(val):
+    """Converte valor para int Python puro ou None (evita numpy int64 / NaN)."""
+    try:
+        if val is None:
+            return None
+        import math
+        import pandas as pd
+        if pd.isna(val):
+            return None
+        return int(val)
+    except Exception:
+        return None
+
+
+def _safe_date(val):
+    """Converte para date Python puro ou None."""
+    try:
+        if val is None:
+            return None
+        import pandas as pd
+        if pd.isna(val):
+            return None
+        if hasattr(val, 'date'):
+            return val.date()
+        return val
+    except Exception:
+        return None
+
+
 def upsert_activity(data: dict):
-    if data.get('id'):
+    act_id    = _safe_int(data.get('id'))
+    parent_id = _safe_int(data.get('parent_id'))
+    start_d   = _safe_date(data.get('start_date'))
+    end_d     = _safe_date(data.get('end_date'))
+    title     = str(data.get('title', ''))
+    desc      = data.get('description') or None
+    priority  = data.get('priority', 'Importante não Urgente')
+    status    = data.get('status', 'Não iniciado')
+
+    if act_id:
         execute_query("""
             UPDATE activities SET title=%s, description=%s, start_date=%s, end_date=%s,
             priority=%s, status=%s, parent_id=%s, updated_at=NOW() WHERE id=%s
-        """, (data['title'], data.get('description'), data.get('start_date'), data.get('end_date'),
-               data.get('priority', 'Importante não Urgente'), data.get('status', 'Não iniciado'),
-               data.get('parent_id'), data['id']), fetch=False)
+        """, (title, desc, start_d, end_d, priority, status, parent_id, act_id), fetch=False)
     else:
         rows = execute_query("""
             INSERT INTO activities (title, description, start_date, end_date, priority, status, parent_id)
             VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id
-        """, (data['title'], data.get('description'), data.get('start_date'), data.get('end_date'),
-               data.get('priority', 'Importante não Urgente'), data.get('status', 'Não iniciado'),
-               data.get('parent_id')))
+        """, (title, desc, start_d, end_d, priority, status, parent_id))
         return rows[0]['id'] if rows else None
 
 
