@@ -21,7 +21,7 @@ from database.queries import (
 )
 from components.charts import (
     cashflow_bar_line, income_expense_bar, pie_by_category,
-    budget_bar_comparison, budget_vs_actual_pie, _empty_figure,
+    budget_bar_comparison,
 )
 from components.styles import page_header
 from utils.helpers import fmt_currency, fmt_date, df_to_excel_bytes, month_range, card_metric
