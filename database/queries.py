@@ -198,8 +198,17 @@ def get_transactions(start_date=None, end_date=None, status=None, flow_type=None
 
     where = " AND ".join(conditions)
     rows = execute_query(f"""
-        SELECT t.*, c.name AS category_name, s.name AS subcategory_name,
-               sup.name AS supplier_name, b.name AS bank_name
+        SELECT
+            t.id, t.flow_type, t.category_id, t.subcategory_id,
+            t.supplier_id, t.bank_id, t.description,
+            t.value, t.interest, t.total_value,
+            t.due_date, t.payment_date, t.status,
+            t.is_recurrent, t.recurrence_type, t.recurrence_group_id,
+            t.notes, t.is_forecast, t.created_at, t.updated_at,
+            c.name AS category_name,
+            s.name AS subcategory_name,
+            sup.name AS supplier_name,
+            b.name AS bank_name
         FROM transactions t
         LEFT JOIN categories c ON t.category_id = c.id
         LEFT JOIN subcategories s ON t.subcategory_id = s.id
