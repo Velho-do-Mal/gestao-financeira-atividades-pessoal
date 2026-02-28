@@ -126,16 +126,20 @@ def upsert_category(flow_type: str, name: str, cat_id: int = None):
         execute_query("UPDATE categories SET flow_type=%s, name=%s WHERE id=%s",
                       (flow_type, name, cat_id), fetch=False)
     else:
-        execute_query("INSERT INTO categories (flow_type, name) VALUES (%s,%s) ON CONFLICT DO NOTHING",
-                      (flow_type, name), fetch=False)
+        execute_query("""
+            INSERT INTO categories (flow_type, name) VALUES (%s,%s)
+            ON CONFLICT (flow_type, name) DO UPDATE SET flow_type=EXCLUDED.flow_type
+        """, (flow_type, name), fetch=False)
 
 
 def upsert_subcategory(category_id: int, name: str, sub_id: int = None):
     if sub_id:
         execute_query("UPDATE subcategories SET name=%s WHERE id=%s", (name, sub_id), fetch=False)
     else:
-        execute_query("INSERT INTO subcategories (category_id, name) VALUES (%s,%s) ON CONFLICT DO NOTHING",
-                      (category_id, name), fetch=False)
+        execute_query("""
+            INSERT INTO subcategories (category_id, name) VALUES (%s,%s)
+            ON CONFLICT (category_id, name) DO UPDATE SET name=EXCLUDED.name
+        """, (category_id, name), fetch=False)
 
 
 def delete_category(cat_id: int):
