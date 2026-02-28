@@ -17,6 +17,14 @@ html, body, [class*="css"] {
     color: #F1F5F9;
 }
 
+
+/* ─── Ocultar navegação automática multipage do Streamlit ── */
+[data-testid="stSidebarNav"],
+[data-testid="collapsedControl"],
+section[data-testid="stSidebar"] > div:first-child > div > div:first-child {
+    display: none !important;
+}
+
 /* ─── Sidebar ────────────────────────────────────────────── */
 section[data-testid="stSidebar"] {
     background: linear-gradient(180deg, #0F172A 0%, #1E293B 100%) !important;
@@ -24,15 +32,20 @@ section[data-testid="stSidebar"] {
 }
 
 section[data-testid="stSidebar"] .stRadio label {
-    color: #CBD5E1 !important;
+    color: #93C5FD !important;
     padding: 8px 12px;
     border-radius: 8px;
     cursor: pointer;
     transition: all 0.2s;
+    font-weight: 500;
 }
 
 section[data-testid="stSidebar"] .stRadio label:hover {
-    background: #1E3A8A22;
+    background: #1E3A8A44;
+    color: #60A5FA !important;
+}
+
+section[data-testid="stSidebar"] .stRadio [data-testid="stMarkdownContainer"] p {
     color: #93C5FD !important;
 }
 

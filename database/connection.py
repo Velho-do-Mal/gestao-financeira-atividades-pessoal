@@ -11,21 +11,33 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# URL padrão Neon — usada quando secrets.toml não está presente
+_NEON_URL = (
+    "postgresql://neondb_owner:npg_bDpOXoF4NkJ9"
+    "@ep-frosty-fog-aixy8ibt-pooler.c-4.us-east-1.aws.neon.tech"
+    "/neondb?sslmode=require&channel_binding=require"
+)
+
 
 def get_db_url() -> str:
-    """Retorna a URL do banco de dados das secrets do Streamlit."""
+    """Retorna a URL do banco: secrets.toml → variável de ambiente → URL Neon embutida."""
     try:
-        return st.secrets["database"]["url"]
+        url = st.secrets["database"]["url"]
+        if url:
+            return url
     except Exception:
-        import os
-        return os.getenv("DATABASE_URL", "")
+        pass
+    import os
+    url_env = os.getenv("DATABASE_URL", "")
+    if url_env:
+        return url_env
+    return _NEON_URL
 
 
 @st.cache_resource
 def get_connection_pool():
     """Cria pool de conexões reutilizável."""
-    url = get_db_url()
-    return url
+    return get_db_url()
 
 
 def get_connection():
