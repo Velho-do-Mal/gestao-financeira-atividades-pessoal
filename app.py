@@ -69,51 +69,11 @@ with st.sidebar:
 
     st.markdown("---")
 
-if 'page' not in st.session_state:
-    st.session_state.page = "🏠 Home"
-
-    nav_items = [
-        ("🏠", "Home"),
-        ("💼", "Finanças"),
-        ("📋", "Atividades"),
-    ]
-
-    for icon, label in nav_items:
-        key = f"{icon} {label}"
-        is_active = st.session_state.page == key
-        btn_style = """
-        <style>
-        div[data-testid="stButton"] button[kind="secondary"] {
-            width: 100%;
-            text-align: left;
-            background: transparent;
-            border: none;
-            color: #93C5FD;
-            font-size: 15px;
-            padding: 10px 16px;
-            border-radius: 8px;
-            font-weight: 500;
-        }
-        </style>
-        """ if not is_active else ""
-        
-        active_css = f"""
-        <style>
-        #btn_{label.lower()} button {{
-            background: linear-gradient(135deg, #1E40AF, #2563EB) !important;
-            color: white !important;
-            border-left: 3px solid #60A5FA !important;
-            box-shadow: 0 4px 12px rgba(37,99,235,0.3) !important;
-        }}
-        </style>
-        """ if is_active else ""
-        
-        st.markdown(active_css, unsafe_allow_html=True)
-        if st.button(f"{icon}  {label}", key=f"nav_{label}", use_container_width=True):
-            st.session_state.page = key
-            st.rerun()
-
-    page = st.session_state.page
+    page = st.radio(
+        "Navegação",
+        ["🏠 Home", "💼 Finanças", "📋 Atividades"],
+        label_visibility="collapsed",
+    )
 
     st.markdown("---")
 
