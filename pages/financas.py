@@ -1,6 +1,6 @@
 """
 pages/financas.py
-Página Finanças — Cadastros, Movimentações, Gerencial, Metas e Dashboards
+P�gina Finanças — Cadastros, Movimentações, Gerencial, Metas e Dashboards
 """
 
 import streamlit as st
@@ -788,7 +788,11 @@ def _metas_smart():
         'title': 'Meta', 'target_value': 'Alvo (R$)',
         'current_value': 'Atual (R$)', 'time_bound': 'Prazo', 'status': 'Status',
     })
-    df_edit['% Progresso'] = (df_edit['Atual (R$)'] / df_edit['Alvo (R$)'].replace(0, 1) * 100).clip(0, 100).round(1)
+    df_edit['Atual (R$)']  = pd.to_numeric(df_edit['Atual (R$)'],  errors='coerce').fillna(0)
+    df_edit['Alvo (R$)']   = pd.to_numeric(df_edit['Alvo (R$)'],   errors='coerce').fillna(0)
+    df_edit['% Progresso'] = (
+        df_edit['Atual (R$)'] / df_edit['Alvo (R$)'].replace(0, 1) * 100
+    ).clip(0, 100).round(1)
 
     edited = st.data_editor(
         df_edit,
