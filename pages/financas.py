@@ -353,70 +353,121 @@ def _tab_movimentacoes():
 
 
 def _form_movimentacao():
+    """
+    Formulário de nova movimentação SEM st.form — permite reatividade total.
+
+    Por que não usar st.form:
+      Dentro de st.form, trocar um selectbox NÃO dispara rerun imediato,
+      então categoria e subcategoria não atualizam ao mudar o Tipo.
+
+    Solução: widgets normais (reativos) + chave de reset (_mov_key) que
+    incrementa ao salvar, limpando todos os campos automaticamente.
+    """
     st.markdown("#### Nova Movimentação")
+
+    # ── Chave de reset — incrementar após salvar "limpa" todos os widgets ──
+    if '_mov_key' not in st.session_state:
+        st.session_state['_mov_key'] = 0
+    k = st.session_state['_mov_key']  # sufixo único por "sessão de preenchimento"
+
     df_cats      = get_categories()
     df_banks     = get_banks()
     df_suppliers = get_suppliers()
 
-    with st.form("form_transaction", clear_on_submit=True):
-        c1, c2      = st.columns(2)
-        flow_type   = c1.selectbox("Tipo*", ["Saída", "Entrada"])
-        description = c2.text_input("Descrição")
+    # ── Linha 1: Tipo + Descrição ─────────────────────────────────────────
+    c1, c2    = st.columns(2)
+    flow_type = c1.selectbox("Tipo*", ["Saída", "Entrada"], key=f"mov_ft_{k}")
+    description = c2.text_input("Descrição", key=f"mov_desc_{k}")
 
-        cats       = df_cats[df_cats['flow_type'].isin([flow_type, 'Ambos'])] if not df_cats.empty else pd.DataFrame()
-        cat_options = dict(zip(cats['name'], cats['id'])) if not cats.empty else {}
-        cat_name   = c1.selectbox("Categoria", list(cat_options.keys()) if cat_options else ["— Cadastre —"])
-        cat_id     = cat_options.get(cat_name)
+    # ── Linha 2: Categoria (filtrada por Tipo) + Subcategoria (filtrada por Categoria) ──
+    # Reativo: muda imediatamente quando flow_type ou categoria mudam
+    cats = (
+        df_cats[df_cats['flow_type'].isin([flow_type, 'Ambos'])]
+        if not df_cats.empty else pd.DataFrame()
+    )
+    cat_options = dict(zip(cats['name'], cats['id'])) if not cats.empty else {}
+    cat_list    = list(cat_options.keys()) if cat_options else ["— Cadastre categorias —"]
 
-        sub_options = {}
-        if cat_id:
-            df_sub = get_subcategories(int(cat_id))
-            if not df_sub.empty:
-                sub_options = dict(zip(df_sub['name'], df_sub['id']))
-        sub_name = c2.selectbox("Subcategoria", list(sub_options.keys()) if sub_options else ["— Selecione —"])
-        sub_id   = sub_options.get(sub_name)
+    c3, c4   = st.columns(2)
+    cat_name = c3.selectbox("Categoria", cat_list, key=f"mov_cat_{k}")
+    cat_id   = cat_options.get(cat_name)
 
-        c3, c4, c5 = st.columns(3)
-        value    = c3.number_input("Valor (R$)*", min_value=0.0, step=0.01)
-        interest = c4.number_input("Juros (R$)",  min_value=0.0, step=0.01)
-        c5.metric("Valor Total", fmt_currency(value + interest))
+    # Subcategorias filtradas pela categoria selecionada
+    sub_options = {}
+    if cat_id:
+        df_sub = get_subcategories(int(cat_id))
+        if not df_sub.empty:
+            sub_options = dict(zip(df_sub['name'], df_sub['id']))
 
-        c6, c7, c8   = st.columns(3)
-        due_date     = c6.date_input("Vencimento*", value=date.today())
-        status       = c7.selectbox("Status", ["Não pago", "Pago"])
-        payment_date = c8.date_input("Data Pagamento", value=None) if status == "Pago" else None
+    sub_list = list(sub_options.keys()) if sub_options else ["— Sem subcategoria —"]
+    sub_name = c4.selectbox("Subcategoria", sub_list, key=f"mov_sub_{k}")
+    sub_id   = sub_options.get(sub_name)
 
-        bank_options = dict(zip(df_banks['name'], df_banks['id'])) if not df_banks.empty else {}
-        sup_options  = {r['name']: r['id'] for _, r in df_suppliers.iterrows()} if not df_suppliers.empty else {}
-        c9, c10  = st.columns(2)
-        bank_name = c9.selectbox("Banco/Conta", ["— Nenhum —"] + list(bank_options.keys()))
-        sup_name  = c10.selectbox("Fornecedor",  ["— Nenhum —"] + list(sup_options.keys()))
-        bank_id   = bank_options.get(bank_name)
-        sup_id    = sup_options.get(sup_name)
+    # ── Linha 3: Valores ──────────────────────────────────────────────────
+    c5, c6, c7 = st.columns(3)
+    value    = c5.number_input("Valor (R$)*", min_value=0.0, step=0.01, key=f"mov_val_{k}")
+    interest = c6.number_input("Juros (R$)",  min_value=0.0, step=0.01, key=f"mov_jur_{k}")
+    c7.metric("Valor Total", fmt_currency(value + interest))
 
-        st.markdown("**Recorrência**")
-        cr1, cr2, cr3 = st.columns(3)
-        is_recurrent  = cr1.selectbox("Recorrente?", ["Não", "Sim"]) == "Sim"
-        rec_type      = cr2.selectbox("Tipo", ["Mensal", "Diário", "Anual"])
-        rec_months    = cr3.number_input("Qtd. ocorrências", 1, 60, 12)
+    # ── Linha 4: Datas + Status ───────────────────────────────────────────
+    c8, c9, c10 = st.columns(3)
+    due_date    = c8.date_input("Vencimento*", value=date.today(), key=f"mov_due_{k}")
+    status      = c9.selectbox("Status", ["Não pago", "Pago"],    key=f"mov_sta_{k}")
+    payment_date = (
+        c10.date_input("Data Pagamento", value=date.today(), key=f"mov_pay_{k}")
+        if status == "Pago" else None
+    )
 
-        notes = st.text_area("Observações", height=60)
+    # ── Linha 5: Banco + Fornecedor ───────────────────────────────────────
+    bank_options = dict(zip(df_banks['name'], df_banks['id']))     if not df_banks.empty     else {}
+    sup_options2 = {r['name']: r['id'] for _, r in df_suppliers.iterrows()} if not df_suppliers.empty else {}
 
-        if st.form_submit_button("💾 Salvar Movimentação", use_container_width=True):
-            if value <= 0:
-                st.error("Valor deve ser maior que zero.")
-            else:
-                insert_transaction(dict(
-                    flow_type=flow_type, category_id=cat_id, subcategory_id=sub_id,
-                    supplier_id=sup_id, bank_id=bank_id, description=description,
-                    value=value, interest=interest, due_date=due_date,
-                    status=status, payment_date=payment_date,
-                    is_recurrent=is_recurrent, recurrence_type=rec_type,
-                    notes=notes,
-                    is_forecast=(status != "Pago"),  # Pago → realizado
-                ), recurrence_months=int(rec_months) if is_recurrent else 0)
-                st.success("✅ Movimentação salva!")
-                _save_and_reload()
+    c11, c12  = st.columns(2)
+    bank_name = c11.selectbox("Banco/Conta", ["— Nenhum —"] + list(bank_options.keys()), key=f"mov_bnk_{k}")
+    sup_name  = c12.selectbox("Fornecedor",  ["— Nenhum —"] + list(sup_options2.keys()),  key=f"mov_sup_{k}")
+    bank_id   = bank_options.get(bank_name)
+    sup_id    = sup_options2.get(sup_name)
+
+    # ── Linha 6: Recorrência ──────────────────────────────────────────────
+    st.markdown("**Recorrência**")
+    cr1, cr2, cr3 = st.columns(3)
+    is_recurrent  = cr1.selectbox("Recorrente?", ["Não", "Sim"],            key=f"mov_rec_{k}") == "Sim"
+    rec_type      = cr2.selectbox("Tipo",        ["Mensal", "Diário", "Anual"], key=f"mov_rtp_{k}")
+    rec_months    = cr3.number_input("Qtd. ocorrências", 1, 60, 12,         key=f"mov_rmo_{k}")
+
+    # ── Observações ───────────────────────────────────────────────────────
+    notes = st.text_area("Observações", height=60, key=f"mov_obs_{k}")
+
+    st.markdown("")  # espaçamento
+
+    # ── Botão de salvar ───────────────────────────────────────────────────
+    if st.button("💾 Salvar Movimentação", key=f"mov_btn_{k}",
+                 type="primary", use_container_width=True):
+        if value <= 0:
+            st.error("Valor deve ser maior que zero.")
+        else:
+            insert_transaction(dict(
+                flow_type    = flow_type,
+                category_id  = cat_id,
+                subcategory_id = sub_id,
+                supplier_id  = sup_id,
+                bank_id      = bank_id,
+                description  = description,
+                value        = value,
+                interest     = interest,
+                due_date     = due_date,
+                status       = status,
+                payment_date = payment_date,
+                is_recurrent = is_recurrent,
+                recurrence_type = rec_type,
+                notes        = notes,
+                is_forecast  = (status != "Pago"),
+            ), recurrence_months=int(rec_months) if is_recurrent else 0)
+
+            st.success("✅ Movimentação salva!")
+            # Incrementa a chave → todos os widgets acima recebem nova key → reset automático
+            st.session_state['_mov_key'] += 1
+            _save_and_reload()
 
 
 def _grid_lancamentos():
