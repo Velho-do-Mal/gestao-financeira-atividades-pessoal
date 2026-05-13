@@ -315,3 +315,62 @@ def run_health_migrations():
     except Exception as e:
         logger.error(f"❌ Erro migrações Saúde: {e}")
         raise
+
+
+# ─── HÁBITOS — 90 DIAS ──────────────────────────────────────────────────────
+HABITS_MIGRATIONS = [
+    """
+    CREATE TABLE IF NOT EXISTS habits (
+        id             SERIAL PRIMARY KEY,
+        name           VARCHAR(200) NOT NULL,
+        description    TEXT,
+        category       VARCHAR(50) DEFAULT 'Geral',
+        frequency_type VARCHAR(30) DEFAULT 'Diário',
+        frequency_days VARCHAR(50),
+        color          VARCHAR(10) DEFAULT '#3B82F6',
+        icon           VARCHAR(10) DEFAULT '🎯',
+        active         BOOLEAN DEFAULT TRUE,
+        created_at     TIMESTAMP DEFAULT NOW()
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS habit_cycles (
+        id         SERIAL PRIMARY KEY,
+        habit_id   INTEGER NOT NULL REFERENCES habits(id) ON DELETE CASCADE,
+        start_date DATE NOT NULL,
+        end_date   DATE NOT NULL,
+        status     VARCHAR(20) DEFAULT 'Em andamento'
+                   CHECK (status IN ('Em andamento','Concluído','Abandonado')),
+        created_at TIMESTAMP DEFAULT NOW()
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS habit_checks (
+        id         SERIAL PRIMARY KEY,
+        cycle_id   INTEGER NOT NULL REFERENCES habit_cycles(id) ON DELETE CASCADE,
+        check_date DATE NOT NULL,
+        done       BOOLEAN DEFAULT TRUE,
+        notes      TEXT,
+        created_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(cycle_id, check_date)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_habit_cycles_habit  ON habit_cycles(habit_id, status)",
+    "CREATE INDEX IF NOT EXISTS idx_habit_checks_cycle  ON habit_checks(cycle_id, check_date)",
+    "CREATE INDEX IF NOT EXISTS idx_habit_checks_date   ON habit_checks(check_date)",
+]
+
+
+def run_habits_migrations():
+    """Executa migrações do módulo Hábitos (idempotente)."""
+    from database.connection import db_cursor
+    import logging
+    logger = logging.getLogger(__name__)
+    try:
+        with db_cursor() as cur:
+            for m in HABITS_MIGRATIONS:
+                cur.execute(m)
+        logger.info("✅ Migrações Hábitos executadas")
+    except Exception as e:
+        logger.error(f"❌ Erro migrações Hábitos: {e}")
+        raise

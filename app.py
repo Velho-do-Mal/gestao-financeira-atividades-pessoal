@@ -44,9 +44,10 @@ init_responsive()
 def init_database():
     """Inicializa o banco de dados (executa uma única vez por processo do servidor)."""
     try:
-        from database.migrations import run_migrations, run_health_migrations
+        from database.migrations import run_migrations, run_health_migrations, run_habits_migrations
         run_migrations()
         run_health_migrations()
+        run_habits_migrations()
         return True
     except Exception as e:
         st.error(f"❌ Erro ao inicializar banco de dados: {e}")
@@ -94,7 +95,7 @@ with st.sidebar:
 
     page = st.radio(
         "Navegação",
-        ["🏠 Home", "💼 Finanças", "📋 Atividades", "💪 Saúde"],
+        ["🏠 Home", "💼 Finanças", "📋 Atividades", "💪 Saúde", "🔄 Hábitos"],
         label_visibility="collapsed",
     )
 
@@ -148,4 +149,7 @@ elif page == "📋 Atividades":
     render()
 elif page == "💪 Saúde":
     from pages.saude import render
+    render()
+elif page == "🔄 Hábitos":
+    from pages.habitos import render
     render()
