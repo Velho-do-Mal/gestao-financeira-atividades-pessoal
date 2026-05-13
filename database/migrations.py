@@ -204,3 +204,114 @@ def run_migrations():
     except Exception as e:
         logger.error(f"❌ Erro nas migrações: {e}")
         raise
+
+
+# ─── SAÚDE — MUSCULAÇÃO ─────────────────────────────────────────────────────
+HEALTH_MIGRATIONS = [
+    """
+    CREATE TABLE IF NOT EXISTS workout_divisions (
+        id            SERIAL PRIMARY KEY,
+        name          VARCHAR(100) NOT NULL,
+        day_of_week   VARCHAR(20),
+        muscle_groups TEXT,
+        order_index   INTEGER DEFAULT 0,
+        active        BOOLEAN DEFAULT TRUE,
+        created_at    TIMESTAMP DEFAULT NOW()
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS exercises (
+        id          SERIAL PRIMARY KEY,
+        division_id INTEGER NOT NULL REFERENCES workout_divisions(id) ON DELETE CASCADE,
+        name        VARCHAR(200) NOT NULL,
+        equipment   VARCHAR(100),
+        notes       TEXT,
+        order_index INTEGER DEFAULT 0,
+        active      BOOLEAN DEFAULT TRUE,
+        created_at  TIMESTAMP DEFAULT NOW()
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS exercise_sets (
+        id          SERIAL PRIMARY KEY,
+        exercise_id INTEGER NOT NULL REFERENCES exercises(id) ON DELETE CASCADE,
+        set_number  INTEGER NOT NULL,
+        reps        INTEGER,
+        weight_kg   NUMERIC(6,2),
+        notes       TEXT,
+        created_at  TIMESTAMP DEFAULT NOW()
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS workout_logs (
+        id          SERIAL PRIMARY KEY,
+        exercise_id INTEGER NOT NULL REFERENCES exercises(id) ON DELETE CASCADE,
+        set_number  INTEGER NOT NULL,
+        reps_done   INTEGER,
+        weight_done NUMERIC(6,2),
+        log_date    DATE DEFAULT CURRENT_DATE,
+        created_at  TIMESTAMP DEFAULT NOW()
+    )
+    """,
+    # ─── NUTRIÇÃO ────────────────────────────────────────────────────────────
+    """
+    CREATE TABLE IF NOT EXISTS foods (
+        id          SERIAL PRIMARY KEY,
+        name        VARCHAR(200) NOT NULL UNIQUE,
+        preparation VARCHAR(50),
+        protein_g   NUMERIC(8,2) DEFAULT 0,
+        carbs_g     NUMERIC(8,2) DEFAULT 0,
+        fat_g       NUMERIC(8,2) DEFAULT 0,
+        active      BOOLEAN DEFAULT TRUE,
+        created_at  TIMESTAMP DEFAULT NOW()
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS meals (
+        id        SERIAL PRIMARY KEY,
+        name      VARCHAR(100) NOT NULL,
+        meal_time TIME,
+        meal_date DATE DEFAULT CURRENT_DATE,
+        notes     TEXT,
+        created_at TIMESTAMP DEFAULT NOW()
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS meal_items (
+        id         SERIAL PRIMARY KEY,
+        meal_id    INTEGER NOT NULL REFERENCES meals(id) ON DELETE CASCADE,
+        food_id    INTEGER NOT NULL REFERENCES foods(id),
+        quantity_g NUMERIC(8,2) NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW()
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS macro_goals (
+        id         SERIAL PRIMARY KEY,
+        protein_g  NUMERIC(8,2) DEFAULT 150,
+        carbs_g    NUMERIC(8,2) DEFAULT 250,
+        fat_g      NUMERIC(8,2) DEFAULT 60,
+        goal_kcal  NUMERIC(8,2) DEFAULT 2000,
+        updated_at TIMESTAMP DEFAULT NOW()
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_workout_logs_exercise ON workout_logs(exercise_id, log_date)",
+    "CREATE INDEX IF NOT EXISTS idx_meal_items_meal       ON meal_items(meal_id)",
+    "CREATE INDEX IF NOT EXISTS idx_meals_date            ON meals(meal_date)",
+    "CREATE INDEX IF NOT EXISTS idx_foods_name            ON foods(name)",
+]
+
+
+def run_health_migrations():
+    """Executa migrações do módulo Saúde (idempotente)."""
+    from database.connection import db_cursor
+    import logging
+    logger = logging.getLogger(__name__)
+    try:
+        with db_cursor() as cur:
+            for m in HEALTH_MIGRATIONS:
+                cur.execute(m)
+        logger.info("✅ Migrações Saúde executadas")
+    except Exception as e:
+        logger.error(f"❌ Erro migrações Saúde: {e}")
+        raise
