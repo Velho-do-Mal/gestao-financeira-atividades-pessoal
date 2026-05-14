@@ -374,3 +374,52 @@ def run_habits_migrations():
     except Exception as e:
         logger.error(f"❌ Erro migrações Hábitos: {e}")
         raise
+
+
+# ─── FLOW ────────────────────────────────────────────────────────────────────
+FLOW_MIGRATIONS = [
+    """
+    CREATE TABLE IF NOT EXISTS flow_diary (
+        id            SERIAL PRIMARY KEY,
+        entry_date    DATE UNIQUE NOT NULL,
+        went_well     TEXT,
+        could_improve TEXT,
+        gratitude     TEXT,
+        day_score     INTEGER CHECK (day_score BETWEEN 1 AND 10),
+        notes         TEXT,
+        created_at    TIMESTAMP DEFAULT NOW(),
+        updated_at    TIMESTAMP DEFAULT NOW()
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS flow_sessions (
+        id               SERIAL PRIMARY KEY,
+        session_date     DATE NOT NULL,
+        started_at       TIMESTAMP,
+        ended_at         TIMESTAMP,
+        duration_minutes INTEGER DEFAULT 0,
+        pause_count      INTEGER DEFAULT 0,
+        pause_minutes    INTEGER DEFAULT 0,
+        session_score    INTEGER CHECK (session_score BETWEEN 1 AND 10),
+        notes            TEXT,
+        created_at       TIMESTAMP DEFAULT NOW()
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_flow_diary_date    ON flow_diary(entry_date)",
+    "CREATE INDEX IF NOT EXISTS idx_flow_sessions_date ON flow_sessions(session_date)",
+]
+
+
+def run_flow_migrations():
+    """Executa migrações do módulo Flow (idempotente)."""
+    from database.connection import db_cursor
+    import logging
+    logger = logging.getLogger(__name__)
+    try:
+        with db_cursor() as cur:
+            for m in FLOW_MIGRATIONS:
+                cur.execute(m)
+        logger.info("✅ Migrações Flow executadas")
+    except Exception as e:
+        logger.error(f"❌ Erro migrações Flow: {e}")
+        raise
