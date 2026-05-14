@@ -2,20 +2,22 @@
 database/connection.py
 Gerenciamento de conexão com PostgreSQL (Neon)
 
-CORREÇÕES v2:
-  - Pool de conexões real (ThreadedConnectionPool) em vez de retornar só a URL
-  - cursor_factory aplicado por conexão (não no construtor do pool)
-  - ⚠️  _NEON_URL mantida visível conforme solicitado — LEMBRETE: atualizar a
-    senha após rotacionar no painel do Neon e, antes de publicar, mover para
-    .streamlit/secrets.toml
+v4 — Conexão nova por query (sem pool local)
+  Motivo: O pgBouncer do Neon gerencia o pooling na infraestrutura dele.
+  Usar pool local + pgBouncer causava InterfaceError ao reutilizar conexões
+  que o Neon fechou por inatividade, mesmo com keepalives.
+  Solução: connect/close por request. O @st.cache_data nas queries garante
+  que o banco só é acessado quando o cache expira — não há overhead real.
+
+  ⚠️  _NEON_URL mantida visível conforme solicitado.
 """
 
 import psycopg2
-import psycopg2.pool
 import psycopg2.extras
 from contextlib import contextmanager
 import streamlit as st
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -28,56 +30,53 @@ _NEON_URL = (
 
 
 def get_db_url() -> str:
-    """Retorna URL do banco: secrets.toml → variável de ambiente → fallback hardcoded."""
+    """Retorna URL do banco: secrets.toml → env var → fallback hardcoded."""
     try:
         url = st.secrets["database"]["url"]
         if url:
             return url
     except Exception:
         pass
-    import os
     url_env = os.getenv("DATABASE_URL", "")
     if url_env:
         return url_env
     return _NEON_URL
 
 
-@st.cache_resource
-def get_connection_pool():
-    """
-    Pool de conexões reutilizável — uma instância por processo do servidor Streamlit.
-    maxconn=5 respeita o limite de conexões do Neon free tier (10 simultâneas).
-    """
-    url = get_db_url()
-    try:
-        pool = psycopg2.pool.ThreadedConnectionPool(minconn=1, maxconn=5, dsn=url)
-        logger.info("✅ Pool de conexões PostgreSQL criado")
-        return pool
-    except Exception as e:
-        logger.error(f"❌ Falha ao criar pool de conexões: {e}")
-        raise
+def _new_connection():
+    """Abre uma conexão nova diretamente (sem pool local)."""
+    return psycopg2.connect(get_db_url(), connect_timeout=10)
 
 
 @contextmanager
 def db_cursor():
     """
     Context manager para operações no banco.
-    Pega conexão do pool, faz commit ou rollback automático, devolve ao pool.
+    Abre e fecha uma conexão por operação.
+    Seguro contra InterfaceError porque nunca reutiliza conexões antigas.
     """
-    pool = get_connection_pool()
-    conn = pool.getconn()
+    conn = None
+    cur  = None
     try:
-        # cursor_factory aplicado por cursor, não no construtor do pool
-        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        conn = _new_connection()
+        cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         yield cur
         conn.commit()
     except Exception as e:
-        conn.rollback()
-        logger.error(f"Erro de banco de dados: {e}")
+        if conn:
+            try:
+                conn.rollback()
+            except Exception:
+                pass   # Ignora erro no rollback — conexão já pode estar morta
+        logger.error(f"Erro de banco: {e}")
         raise
     finally:
-        cur.close()
-        pool.putconn(conn)
+        if cur:
+            try: cur.close()
+            except Exception: pass
+        if conn:
+            try: conn.close()
+            except Exception: pass
 
 
 def execute_query(query: str, params=None, fetch: bool = True):
@@ -93,3 +92,12 @@ def execute_many(query: str, data: list):
     """Executa query com múltiplos registros em batch."""
     with db_cursor() as cur:
         psycopg2.extras.execute_batch(cur, query, data)
+
+
+# Mantido por compatibilidade com código que chama get_connection_pool()
+def get_connection_pool():
+    """
+    Stub de compatibilidade — não usa mais pool local.
+    O Neon gerencia pooling via pgBouncer na infraestrutura.
+    """
+    return None

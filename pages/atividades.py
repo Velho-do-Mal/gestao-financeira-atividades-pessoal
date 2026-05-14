@@ -200,24 +200,15 @@ def _render_children(df: pd.DataFrame, parent_id: int,
 def _render_activity_row(row, today: date, depth: int = 0):
     act_id     = int(row['id'])
     is_editing = _get_editing_id() == act_id
-
-    # Indentação visual por profundidade
-    if depth > 0:
-        indent_px = depth * 28
-        st.markdown(
-            f'<div style="border-left:3px solid #3B82F6;margin-left:{indent_px}px;'
-            f'padding-left:4px;margin-bottom:0"></div>',
-            unsafe_allow_html=True,
-        )
-
     if is_editing:
-        _render_edit_form(row)
+        _render_edit_form(row, depth=depth)
     else:
         _render_view_row(row, today, depth)
 
 
 def _render_view_row(row, today: date, depth: int = 0):
     act_id = int(row['id'])
+    is_sub = depth > 0
 
     end_d = row.get('end_date')
     if end_d and not isinstance(end_d, date):
@@ -226,9 +217,7 @@ def _render_view_row(row, today: date, depth: int = 0):
 
     icon    = status_icon(row.get('status', ''), end_d)
     p_emoji = priority_emoji(row.get('priority', ''))
-    is_sub  = depth > 0
 
-    # BUG 3 FIX: exibe descrição quando preenchida
     desc = str(row.get('description') or '').strip()
     desc_html = (
         f'<div style="font-size:12px;color:#94A3B8;margin-top:3px;'
@@ -236,7 +225,25 @@ def _render_view_row(row, today: date, depth: int = 0):
         if desc else ''
     )
 
-    col_info, col_status, col_dates, col_edit, col_del = st.columns([5, 2, 2, 1, 1])
+    # ── Colunas com indentação integrada ──────────────────────────
+    # Para subatividades: primeira coluna é um espaçador visual
+    # O espaçador fica DENTRO do grid → row inteira fica deslocada visualmente
+    if is_sub:
+        indent_w = min(depth * 0.6, 1.8)   # largura do espaçador
+        info_w   = max(5.0 - indent_w, 2.5)
+        all_cols = st.columns([indent_w, info_w, 2, 2, 1, 1])
+        # Espaçador: linha vertical azul indicando hierarquia
+        with all_cols[0]:
+            st.markdown(
+                f'<div style="border-left:3px solid #3B82F6;height:54px;'
+                f'margin-left:{(depth-1)*8}px;margin-top:4px"></div>',
+                unsafe_allow_html=True,
+            )
+        col_info, col_status, col_dates, col_edit, col_del = (
+            all_cols[1], all_cols[2], all_cols[3], all_cols[4], all_cols[5]
+        )
+    else:
+        col_info, col_status, col_dates, col_edit, col_del = st.columns([5, 2, 2, 1, 1])
 
     with col_info:
         fw    = '500' if is_sub else '700'
@@ -295,7 +302,7 @@ def _render_view_row(row, today: date, depth: int = 0):
             _save_and_reload()
 
 
-def _render_edit_form(row):
+def _render_edit_form(row, depth: int = 0):
     """BUG 2 FIX: formulário de edição inline por atividade."""
     act_id = int(row['id'])
     k      = f"edt_{act_id}"
@@ -325,9 +332,10 @@ def _render_edit_form(row):
     try: status_idx = STATUS_LIST.index(cur_status)
     except ValueError: status_idx = 0
 
-    st.markdown("""
+    margin = depth * 28
+    st.markdown(f"""
     <div style="background:#1E3A5F;border-radius:10px;padding:10px 16px;
-                margin-bottom:8px;border:1px solid #3B82F6">
+                margin-bottom:8px;margin-left:{margin}px;border:1px solid #3B82F6">
         <span style="color:#60A5FA;font-weight:600">✏️ Editando atividade</span>
     </div>
     """, unsafe_allow_html=True)
