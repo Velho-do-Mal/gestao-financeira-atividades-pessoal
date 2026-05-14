@@ -1,6 +1,6 @@
 """
 app.py
-BK Finance — Sistema de Gestão Financeira e Atividades
+BK Gestão Pessoal — Sistema de Gestão Financeira e Atividades
 BK Engenharia e Tecnologia
 Versão: 2.0.0 | Python 3.13 | Streamlit | PostgreSQL (Neon)
 
@@ -16,12 +16,12 @@ from datetime import date
 
 # ─── Configuração da página ────────────────────────────────────────────
 st.set_page_config(
-    page_title="BK Finance",
-    page_icon="💼",
+    page_title="BK Gestão Pessoal",
+    page_icon="🏠",
     layout="wide",
     initial_sidebar_state="expanded",
     menu_items={
-        "About": "BK Finance — Sistema de Gestão Financeira e Atividades\nBK Engenharia e Tecnologia",
+        "About": "BK Gestão Pessoal — Sistema de Gestão Financeira e Atividades\nBK Engenharia e Tecnologia",
     },
 )
 
@@ -85,8 +85,8 @@ if db_ok:
 with st.sidebar:
     st.markdown("""
     <div style="text-align:center;padding:20px 0 10px 0">
-        <div style="font-size:40px">💼</div>
-        <h2 style="margin:8px 0 4px 0;color:#93C5FD;font-size:20px">BK Finance</h2>
+        <div style="font-size:40px">🏠</div>
+        <h2 style="margin:8px 0 4px 0;color:#93C5FD;font-size:20px">BK Gestão Pessoal</h2>
         <p style="color:#64748B;font-size:12px;margin:0">BK Engenharia e Tecnologia</p>
     </div>
     """, unsafe_allow_html=True)
@@ -95,7 +95,7 @@ with st.sidebar:
 
     page = st.radio(
         "Navegação",
-        ["🏠 Home", "💼 Finanças", "📋 Atividades", "💪 Saúde", "🔄 Hábitos"],
+        ["🏠 Home", "🏠 Finanças", "📋 Atividades", "💪 Saúde", "🔄 Hábitos"],
         label_visibility="collapsed",
     )
 
@@ -141,7 +141,7 @@ if not db_ok:
 if page == "🏠 Home":
     from pages.home import render
     render()
-elif page == "💼 Finanças":
+elif page == "🏠 Finanças":
     from pages.financas import render
     render()
 elif page == "📋 Atividades":

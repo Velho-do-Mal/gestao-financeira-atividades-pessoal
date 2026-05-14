@@ -1,6 +1,6 @@
 """
 components/styles.py
-Estilos CSS globais do BK Finance
+Estilos CSS globais do BK Gestão Pessoal
 """
 
 GLOBAL_CSS = """
