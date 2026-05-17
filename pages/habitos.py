@@ -48,6 +48,16 @@ def _reload():
     st.rerun()
 
 
+def _freq_days_label(freq_days: str) -> str:
+    """Converte '0,1,2,3,4' em 'Seg-Sex'."""
+    map_d = {0:'Seg',1:'Ter',2:'Qua',3:'Qui',4:'Sex',5:'Sáb',6:'Dom'}
+    try:
+        days = [int(x) for x in freq_days.split(',') if x.strip()]
+        return ', '.join(map_d.get(d, str(d)) for d in sorted(days))
+    except Exception:
+        return freq_days or 'Configurado' 
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 def render():
     page_header("Hábitos", "Ciclos de 90 dias para transformação de hábitos", "🔄")
@@ -73,9 +83,24 @@ def _tab_check_dia():
         return
 
     # Filtra hábitos programados para hoje
+    # Para "X vezes por semana": calcula quantas vezes já foi feito esta semana
+    week_start = today - timedelta(days=today.weekday())  # Segunda-feira
     today_habits = []
     for _, row in df.iterrows():
-        if _is_scheduled(today, row.get('frequency_type','Diário'), row.get('frequency_days','')):
+        freq_type  = row.get('frequency_type', 'Diário') or 'Diário'
+        freq_days  = row.get('frequency_days', '') or ''
+        done_week  = 0
+        if freq_type == 'X vezes por semana':
+            cycle_id_row = int(row['cycle_id'])
+            df_wk = get_checks(cycle_id_row)
+            if not df_wk.empty:
+                df_wk['_d'] = pd.to_datetime(df_wk['check_date'], errors='coerce').dt.date
+                done_week = int(df_wk[
+                    df_wk['done'].astype(bool) &
+                    (df_wk['_d'] >= week_start) &
+                    (df_wk['_d'] <= today)
+                ].shape[0])
+        if _is_scheduled(today, freq_type, freq_days, done_this_week=done_week):
             today_habits.append(row)
 
     if not today_habits:
@@ -124,24 +149,25 @@ def _tab_check_dia():
         border = color if done else "#334155"
         check_emoji = "✅" if done else "⬜"
 
+        # Pré-computa tudo fora do f-string para evitar quebra do parser Markdown
+        category_txt = row.get('category', '') or ''
+        streak_txt   = f"&nbsp;&nbsp;🔥 {streak} dias" if streak > 1 else ""
+        freq_type    = row.get('frequency_type', 'Diário') or 'Diário'
+        freq_days_v  = row.get('frequency_days', '') or ''
+        freq_label   = {
+            'Diário':             '📅 Diário',
+            'Dias da semana':     '📅 ' + _freq_days_label(freq_days_v),
+            'X vezes por semana': f'📅 {freq_days_v or "3"}x/semana',
+        }.get(freq_type, '📅 Diário')
+        sub_info = f"{category_txt}&nbsp;·&nbsp;{freq_label}{streak_txt}".strip()
+
         col_card, col_btn = st.columns([5, 1])
         with col_card:
-            st.markdown(f"""
-            <div style="background:{bg};border-radius:12px;padding:12px 16px;
-                        border:1px solid {border};margin-bottom:6px">
-                <div style="display:flex;align-items:center;gap:10px">
-                    <span style="font-size:24px">{icon}</span>
-                    <div style="flex:1">
-                        <div style="color:#F1F5F9;font-weight:600">{row['name']}</div>
-                        <div style="color:#64748B;font-size:12px">
-                            {row.get('category','')}
-                            {"  🔥 " + str(streak) + " dias seguidos" if streak > 1 else ""}
-                        </div>
-                    </div>
-                    <span style="font-size:22px">{check_emoji}</span>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
+            # HTML em linha única — evita o bug de tags aparecendo como texto
+            st.markdown(
+                f'<div style="background:{bg};border-radius:12px;padding:12px 16px;border:1px solid {border};margin-bottom:6px">'                f'<div style="display:flex;align-items:center;gap:10px">'                f'<span style="font-size:24px">{icon}</span>'                f'<div style="flex:1">'                f'<div style="color:#F1F5F9;font-weight:600">{row["name"]}</div>'                f'<div style="color:#64748B;font-size:12px">{sub_info}</div>'                f'</div>'                f'<span style="font-size:22px">{check_emoji}</span>'                f'</div></div>',
+                unsafe_allow_html=True,
+            )
         with col_btn:
             btn_label = "↩️" if done else "✔️"
             btn_help  = "Desmarcar" if done else "Marcar como feito"
