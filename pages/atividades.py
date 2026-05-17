@@ -60,7 +60,44 @@ def _tab_tabela():
 
     df_all = get_activities()
 
-    # ── Filtros ───────────────────────────────────────────────────────────────
+    # ── Filtros rápidos por data ──────────────────────────────────────────────
+    today = date.today()
+    if '_tbl_quick' not in st.session_state:
+        st.session_state['_tbl_quick'] = 'todos'
+
+    qc1, qc2, qc3, _ = st.columns([1, 1, 1, 3])
+    if qc1.button(
+        "📅 Hoje",
+        use_container_width=True,
+        type="primary" if st.session_state['_tbl_quick'] == 'hoje' else "secondary",
+        key="qf_hoje",
+    ):
+        st.session_state['_tbl_quick'] = (
+            'todos' if st.session_state['_tbl_quick'] == 'hoje' else 'hoje'
+        )
+        st.rerun()
+
+    if qc2.button(
+        "📆 7 dias",
+        use_container_width=True,
+        type="primary" if st.session_state['_tbl_quick'] == 'semana' else "secondary",
+        key="qf_semana",
+    ):
+        st.session_state['_tbl_quick'] = (
+            'todos' if st.session_state['_tbl_quick'] == 'semana' else 'semana'
+        )
+        st.rerun()
+
+    if qc3.button(
+        "✖ Limpar",
+        use_container_width=True,
+        disabled=(st.session_state['_tbl_quick'] == 'todos'),
+        key="qf_clear",
+    ):
+        st.session_state['_tbl_quick'] = 'todos'
+        st.rerun()
+
+    # ── Filtros normais ────────────────────────────────────────────────────────
     cf1, cf2, cf3 = st.columns(3)
     f_priority = cf1.selectbox("Prioridade", ["Todas"] + PRIORITIES, key="tbl_prior")
     f_status   = cf2.selectbox("Status",     ["Todos"]  + STATUS_LIST, key="tbl_stat")
@@ -83,7 +120,20 @@ def _tab_tabela():
     else:
         df_work = df_all.copy()
 
-        # Aplica filtros
+        # Aplica filtro rápido de data
+        quick = st.session_state.get('_tbl_quick', 'todos')
+        if quick == 'hoje':
+            df_work['_end'] = pd.to_datetime(df_work['end_date'], errors='coerce').dt.date
+            df_work = df_work[df_work['_end'] == today]
+        elif quick == 'semana':
+            df_work['_end'] = pd.to_datetime(df_work['end_date'], errors='coerce').dt.date
+            df_work = df_work[
+                df_work['_end'].notna() &
+                (df_work['_end'] >= today) &
+                (df_work['_end'] <= today + timedelta(days=7))
+            ]
+
+        # Aplica filtros normais
         if f_priority != "Todas":
             df_work = df_work[df_work['priority'] == f_priority]
         if f_status != "Todos":
