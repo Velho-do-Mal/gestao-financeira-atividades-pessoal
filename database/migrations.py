@@ -423,3 +423,27 @@ def run_flow_migrations():
     except Exception as e:
         logger.error(f"❌ Erro migrações Flow: {e}")
         raise
+
+
+# ─── CALENDÁRIO — novos campos em activities ─────────────────────────────────
+CALENDAR_MIGRATIONS = [
+    "ALTER TABLE activities ADD COLUMN IF NOT EXISTS start_time  TIME",
+    "ALTER TABLE activities ADD COLUMN IF NOT EXISTS end_time    TIME",
+    "ALTER TABLE activities ADD COLUMN IF NOT EXISTS event_color VARCHAR(10) DEFAULT '#3B82F6'",
+    "ALTER TABLE activities ADD COLUMN IF NOT EXISTS event_type  VARCHAR(50) DEFAULT 'Tarefa'",
+    "CREATE INDEX IF NOT EXISTS idx_activities_start_date ON activities(start_date)",
+]
+
+
+def run_calendar_migrations():
+    from database.connection import db_cursor
+    import logging
+    logger = logging.getLogger(__name__)
+    try:
+        with db_cursor() as cur:
+            for m in CALENDAR_MIGRATIONS:
+                cur.execute(m)
+        logger.info("✅ Migrações Calendário executadas")
+    except Exception as e:
+        logger.error(f"❌ Erro migrações Calendário: {e}")
+        raise
