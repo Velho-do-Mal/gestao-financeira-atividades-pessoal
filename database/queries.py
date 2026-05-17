@@ -529,31 +529,58 @@ def _safe_date(val):
 
 
 def upsert_activity(data: dict):
-    act_id    = _safe_int(data.get('id'))
-    parent_id = _safe_int(data.get('parent_id'))
-    start_d   = _safe_date(data.get('start_date'))
-    end_d     = _safe_date(data.get('end_date'))
-    title     = str(data.get('title', ''))
-    desc      = data.get('description') or None
-    priority  = data.get('priority', 'Importante não Urgente')
-    status    = data.get('status', 'Não iniciado')
+    act_id      = _safe_int(data.get('id'))
+    parent_id   = _safe_int(data.get('parent_id'))
+    start_d     = _safe_date(data.get('start_date'))
+    end_d       = _safe_date(data.get('end_date'))
+    title       = str(data.get('title', ''))
+    desc        = data.get('description') or None
+    priority    = data.get('priority', 'Importante não Urgente')
+    status      = data.get('status', 'Não iniciado')
+    start_time  = data.get('start_time') or None
+    end_time    = data.get('end_time')   or None
+    event_color = data.get('event_color') or '#3B82F6'
+    event_type  = data.get('event_type')  or 'Tarefa'
 
     if act_id:
         execute_query("""
-            UPDATE activities SET title=%s, description=%s, start_date=%s, end_date=%s,
-            priority=%s, status=%s, parent_id=%s, updated_at=NOW() WHERE id=%s
-        """, (title, desc, start_d, end_d, priority, status, parent_id, act_id), fetch=False)
+            UPDATE activities
+            SET title=%s, description=%s, start_date=%s, end_date=%s,
+                priority=%s, status=%s, parent_id=%s,
+                start_time=%s, end_time=%s, event_color=%s, event_type=%s,
+                updated_at=NOW()
+            WHERE id=%s
+        """, (title, desc, start_d, end_d, priority, status, parent_id,
+              start_time, end_time, event_color, event_type, act_id), fetch=False)
     else:
         rows = execute_query("""
-            INSERT INTO activities (title, description, start_date, end_date, priority, status, parent_id)
-            VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id
-        """, (title, desc, start_d, end_d, priority, status, parent_id))
+            INSERT INTO activities
+                (title, description, start_date, end_date, priority, status, parent_id,
+                 start_time, end_time, event_color, event_type)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id
+        """, (title, desc, start_d, end_d, priority, status, parent_id,
+              start_time, end_time, event_color, event_type))
         return rows[0]['id'] if rows else None
 
 
 def delete_activity(activity_id: int):
     """Exclui atividade e todos os seus filhos (ON DELETE CASCADE garante netos também)."""
     execute_query("DELETE FROM activities WHERE id=%s", (activity_id,), fetch=False)
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def get_calendar_events(start_date, end_date) -> pd.DataFrame:
+    """
+    Retorna atividades com start_time definido (eventos de calendário)
+    dentro do intervalo de datas. Sincronizado bidirecionalmente com a tabela.
+    """
+    rows = execute_query("""
+        SELECT * FROM activities
+        WHERE start_date BETWEEN %s AND %s
+          AND start_time IS NOT NULL
+        ORDER BY start_date, start_time
+    """, (start_date, end_date))
+    return pd.DataFrame(rows) if rows else pd.DataFrame()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
