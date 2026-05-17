@@ -244,12 +244,24 @@ def _count_programmed_days(start: date, end: date, freq_type: str, freq_days: st
     return (end - start).days + 1
 
 
-def _is_scheduled(d: date, freq_type: str, freq_days: str) -> bool:
-    if freq_type == 'Diário':
+def _is_scheduled(d: date, freq_type: str, freq_days: str,
+                  done_this_week: int = 0) -> bool:
+    """
+    Verifica se o hábito deve ser executado no dia d.
+    done_this_week: quantas vezes já foi feito esta semana (usado para X vezes/semana).
+    """
+    if freq_type is None or freq_type == 'Diário':
         return True
     elif freq_type == 'Dias da semana':
         return d.weekday() in _parse_weekdays(freq_days)
-    return True  # 'X vezes por semana': qualquer dia vale
+    elif freq_type == 'X vezes por semana':
+        # Só mostra se a meta semanal ainda não foi atingida
+        try:
+            target = int(freq_days or '3')
+        except (ValueError, TypeError):
+            target = 3
+        return done_this_week < target
+    return True
 
 
 def _parse_weekdays(freq_days: str) -> list:
