@@ -10,13 +10,15 @@ Abas:
 
 import streamlit as st
 import pandas as pd
-from datetime import date, timedelta
+from datetime import date, timedelta, datetime
 
 from database.queries import (
     get_activities, upsert_activity, delete_activity,
     get_action_plans, upsert_action_plan, delete_action_plan,
-    clear_data_cache,
+    get_calendar_events, clear_data_cache,
 )
+from datetime import time as dtime
+from dateutil.relativedelta import relativedelta
 from components.styles import page_header
 
 PRIORITIES = [
@@ -44,10 +46,11 @@ def _set_editing_id(act_id):
 def render():
     page_header("Atividades", "Gestão de Tarefas e Ações", "📋")
 
-    tabs = st.tabs(["📋 Tabela", "🌳 Hierarquia", "🗂️ Plano de Ação (5W2H)"])
+    tabs = st.tabs(["📋 Tabela", "📅 Calendário", "🌳 Hierarquia", "🗂️ Plano de Ação (5W2H)"])
     with tabs[0]: _tab_tabela()
-    with tabs[1]: _tab_hierarquia()
-    with tabs[2]: _tab_plano_acao()
+    with tabs[1]: _tab_calendario()
+    with tabs[2]: _tab_hierarquia()
+    with tabs[3]: _tab_plano_acao()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -582,3 +585,448 @@ def _tab_plano_acao():
                 ))
         st.toast("✅ Status atualizado!", icon="✅")
         _reload()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ABA CALENDÁRIO
+# ══════════════════════════════════════════════════════════════════════════════
+
+EVENT_TYPES = {
+    "Trabalho":       "#3B82F6",
+    "Reunião":        "#8B5CF6",
+    "Pessoal":        "#10B981",
+    "Saúde":          "#EF4444",
+    "Estudo":         "#F59E0B",
+    "Visita Técnica": "#06B6D4",
+    "Outro":          "#64748B",
+    "Tarefa":         "#475569",
+}
+
+WEEK_PT   = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"]
+MONTH_PT  = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho",
+             "Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"]
+
+HOUR_START = 6
+HOUR_END   = 22
+HOUR_PX    = 48   # pixels per hour in weekly view
+
+
+def _tab_calendario():
+    # ── State ────────────────────────────────────────────────────────────────
+    if '_cal_view'     not in st.session_state: st.session_state['_cal_view']     = 'weekly'
+    if '_cal_ref'      not in st.session_state: st.session_state['_cal_ref']      = date.today()
+    if '_cal_new_date' not in st.session_state: st.session_state['_cal_new_date'] = date.today()
+    if '_cal_edit_id'  not in st.session_state: st.session_state['_cal_edit_id']  = None
+
+    view = st.session_state['_cal_view']
+    ref  = st.session_state['_cal_ref']
+
+    # ── Barra de navegação ────────────────────────────────────────────────────
+    nav1, nav2, nav3, nav4, nav5 = st.columns([1, 1, 4, 1, 1])
+
+    if nav1.button("◀", key="cal_prev", use_container_width=True):
+        delta = timedelta(days=7) if view == 'weekly' else relativedelta(months=1)
+        st.session_state['_cal_ref'] = ref - delta
+        st.rerun()
+
+    if nav5.button("▶", key="cal_next", use_container_width=True):
+        delta = timedelta(days=7) if view == 'weekly' else relativedelta(months=1)
+        st.session_state['_cal_ref'] = ref + delta
+        st.rerun()
+
+    # Label central
+    if view == 'weekly':
+        ws = ref - timedelta(days=ref.weekday())
+        we = ws + timedelta(days=6)
+        label = f"{ws.strftime('%d/%m')} — {we.strftime('%d/%m/%Y')}"
+    else:
+        label = f"{MONTH_PT[ref.month-1]} {ref.year}"
+
+    nav3.markdown(
+        f"<div style='text-align:center;font-size:16px;font-weight:600;"
+        f"padding:6px;color:#F1F5F9'>{label}</div>",
+        unsafe_allow_html=True,
+    )
+
+    # Toggle view
+    vt1, vt2, vt3 = st.columns([2, 2, 6])
+    if vt1.button("📆 Semanal", key="cal_wk_btn", use_container_width=True,
+                  type="primary" if view == 'weekly' else "secondary"):
+        st.session_state['_cal_view'] = 'weekly'
+        st.rerun()
+    if vt2.button("📅 Mensal", key="cal_mo_btn", use_container_width=True,
+                  type="primary" if view == 'monthly' else "secondary"):
+        st.session_state['_cal_view'] = 'monthly'
+        st.rerun()
+    if vt3.button("Hoje", key="cal_today_btn"):
+        st.session_state['_cal_ref'] = date.today()
+        st.rerun()
+
+    st.markdown("<div style='margin-top:8px'></div>", unsafe_allow_html=True)
+
+    # ── Renderiza view ────────────────────────────────────────────────────────
+    if view == 'weekly':
+        _render_weekly(ref)
+    else:
+        _render_monthly(ref)
+
+    st.markdown("---")
+    _form_event()
+
+
+# ─── VISUALIZAÇÃO SEMANAL ──────────────────────────────────────────────────────
+
+def _render_weekly(ref: date):
+    week_start = ref - timedelta(days=ref.weekday())
+    week_dates = [week_start + timedelta(days=i) for i in range(7)]
+    today = date.today()
+
+    # Busca eventos da semana
+    df_ev = get_calendar_events(week_dates[0], week_dates[6])
+    events_by_day: dict = {d: [] for d in week_dates}
+    if not df_ev.empty:
+        for _, ev in df_ev.iterrows():
+            ev_date = ev.get('start_date')
+            if hasattr(ev_date, 'date'): ev_date = ev_date.date()
+            if ev_date in events_by_day:
+                events_by_day[ev_date].append(ev)
+
+    total_height = (HOUR_END - HOUR_START) * HOUR_PX
+
+    # ── Build HTML ────────────────────────────────────────────────────────────
+    # Header
+    header_days = ''
+    for i, d in enumerate(week_dates):
+        is_today = (d == today)
+        day_color = "#60A5FA" if is_today else "#94A3B8"
+        num_bg    = "#3B82F6" if is_today else "transparent"
+        num_color = "#FFFFFF" if is_today else "#F1F5F9"
+        header_days += (
+            f'<div style="flex:1;text-align:center;padding:6px 2px;'
+            f'border-left:1px solid #1E293B;">'
+            f'<div style="font-size:11px;color:{day_color};text-transform:uppercase">{WEEK_PT[i]}</div>'
+            f'<div style="display:inline-block;width:28px;height:28px;line-height:28px;'
+            f'border-radius:50%;background:{num_bg};color:{num_color};'
+            f'font-size:16px;font-weight:600;margin-top:2px">{d.day}</div>'
+            f'</div>'
+        )
+
+    # Hour labels
+    hour_labels = ''
+    for h in range(HOUR_START, HOUR_END):
+        top = (h - HOUR_START) * HOUR_PX
+        hour_labels += (
+            f'<div style="position:absolute;top:{top}px;left:0;right:0;'
+            f'font-size:10px;color:#475569;padding:2px 4px;line-height:1">'
+            f'{h:02d}:00</div>'
+        )
+
+    # Day columns with events
+    day_cols_html = ''
+    for d in week_dates:
+        # Hour lines
+        lines = ''
+        for h in range(HOUR_END - HOUR_START):
+            top = h * HOUR_PX
+            lines += f'<div style="position:absolute;top:{top}px;left:0;right:0;height:1px;background:#1E293B;"></div>'
+
+        # Half-hour lines (lighter)
+        for h in range(HOUR_END - HOUR_START):
+            top = h * HOUR_PX + HOUR_PX // 2
+            lines += f'<div style="position:absolute;top:{top}px;left:0;right:0;height:1px;background:#0F172A;"></div>'
+
+        # Current time indicator
+        if d == today:
+            now = datetime.now()
+            mins_from_start = (now.hour - HOUR_START) * 60 + now.minute
+            if 0 <= mins_from_start <= (HOUR_END - HOUR_START) * 60:
+                top_now = mins_from_start / 60 * HOUR_PX
+                lines += (
+                    f'<div style="position:absolute;top:{top_now:.0f}px;left:0;right:0;'
+                    f'height:2px;background:#EF4444;z-index:10;">'
+                    f'<div style="position:absolute;left:-4px;top:-4px;width:8px;height:8px;'
+                    f'border-radius:50%;background:#EF4444;"></div></div>'
+                )
+
+        # Events
+        evs_html = ''
+        for ev in events_by_day.get(d, []):
+            st_obj = ev.get('start_time')
+            et_obj = ev.get('end_time')
+            color  = ev.get('event_color') or '#3B82F6'
+
+            if st_obj is None: continue
+            if hasattr(st_obj, 'hour'):
+                sh, sm = st_obj.hour, st_obj.minute
+            else:
+                try: sh, sm = int(str(st_obj)[:2]), int(str(st_obj)[3:5])
+                except: continue
+
+            top_ev = max(0, (sh * 60 + sm - HOUR_START * 60) / 60 * HOUR_PX)
+
+            if et_obj and hasattr(et_obj, 'hour'):
+                eh, em = et_obj.hour, et_obj.minute
+                dur_mins = (eh * 60 + em) - (sh * 60 + sm)
+            elif et_obj:
+                try:
+                    eh, em = int(str(et_obj)[:2]), int(str(et_obj)[3:5])
+                    dur_mins = (eh * 60 + em) - (sh * 60 + sm)
+                except: dur_mins = 60
+            else:
+                dur_mins = 60
+
+            dur_mins = max(30, dur_mins)
+            height_ev = dur_mins / 60 * HOUR_PX
+
+            status = str(ev.get('status', ''))
+            opacity = '0.5' if status == 'Concluído' else '1'
+            text_deco = 'line-through' if status == 'Concluído' else 'none'
+            title_short = str(ev.get('title', ''))[:20]
+            time_str = f"{sh:02d}:{sm:02d}"
+
+            evs_html += (
+                f'<div title="{ev.get("title","")}" style="position:absolute;top:{top_ev:.0f}px;'
+                f'height:{height_ev:.0f}px;left:2px;right:2px;background:{color};'
+                f'border-radius:4px;padding:2px 4px;overflow:hidden;cursor:pointer;'
+                f'opacity:{opacity};z-index:5;">'
+                f'<div style="font-size:10px;font-weight:600;color:#fff;'
+                f'text-decoration:{text_deco};line-height:1.3">{title_short}</div>'
+                f'<div style="font-size:9px;color:rgba(255,255,255,0.8)">{time_str}</div>'
+                f'</div>'
+            )
+
+        day_cols_html += (
+            f'<div style="flex:1;border-left:1px solid #1E293B;position:relative;height:{total_height}px;">'
+            f'{lines}{evs_html}'
+            f'</div>'
+        )
+
+    # Final HTML
+    cal_html = f"""
+<div style="font-family:Inter,sans-serif;background:#0F172A;border-radius:12px;
+            border:1px solid #1E293B;overflow:hidden;">
+  <div style="display:flex;border-bottom:1px solid #1E293B;background:#1E293B;">
+    <div style="width:50px;flex-shrink:0;"></div>
+    {header_days}
+  </div>
+  <div style="display:flex;overflow-y:auto;max-height:580px;">
+    <div style="width:50px;flex-shrink:0;position:relative;height:{total_height}px;background:#0F172A;">
+      {hour_labels}
+    </div>
+    {day_cols_html}
+  </div>
+</div>
+"""
+    import streamlit.components.v1 as stcomp
+    stcomp.html(cal_html, height=640, scrolling=False)
+
+
+# ─── VISUALIZAÇÃO MENSAL ───────────────────────────────────────────────────────
+
+def _render_monthly(ref: date):
+    today = date.today()
+    month_start = ref.replace(day=1)
+    month_end   = (month_start + relativedelta(months=1)) - timedelta(days=1)
+
+    df_ev = get_calendar_events(month_start, month_end)
+    events_by_day: dict = {}
+    if not df_ev.empty:
+        for _, ev in df_ev.iterrows():
+            ev_date = ev.get('start_date')
+            if hasattr(ev_date, 'date'): ev_date = ev_date.date()
+            events_by_day.setdefault(ev_date, []).append(ev)
+
+    # Header dias da semana
+    header = st.columns(7)
+    for i, d in enumerate(WEEK_PT):
+        color = "#EF4444" if d == "Dom" else "#94A3B8"
+        header[i].markdown(
+            f"<div style='text-align:center;font-size:12px;font-weight:600;"
+            f"color:{color};padding:4px 0'>{d}</div>",
+            unsafe_allow_html=True,
+        )
+
+    # Dias do mês
+    first_wd = month_start.weekday()
+    days_in  = month_end.day
+    all_days = [None] * first_wd + [
+        month_start + timedelta(days=i) for i in range(days_in)
+    ]
+    weeks = [all_days[i:i+7] for i in range(0, len(all_days), 7)]
+    if len(weeks[-1]) < 7:
+        weeks[-1] += [None] * (7 - len(weeks[-1]))
+
+    for week in weeks:
+        cols = st.columns(7)
+        for i, day in enumerate(week):
+            with cols[i]:
+                if day is None:
+                    st.markdown("<div style='height:80px'></div>", unsafe_allow_html=True)
+                    continue
+
+                is_today  = (day == today)
+                is_sunday = (i == 6)
+                evs       = events_by_day.get(day, [])
+
+                num_bg    = "#3B82F6" if is_today else "transparent"
+                num_color = "#FFFFFF" if is_today else ("#EF4444" if is_sunday else "#F1F5F9")
+
+                # Eventos pills
+                ev_pills = ""
+                for ev in evs[:3]:
+                    c = ev.get('event_color') or '#3B82F6'
+                    t = str(ev.get('title',''))[:10]
+                    s = str(ev.get('status',''))
+                    op = '0.5' if s == 'Concluído' else '1'
+                    ev_pills += (
+                        f'<div style="background:{c};color:#fff;font-size:9px;'
+                        f'border-radius:3px;padding:1px 4px;margin-top:2px;'
+                        f'overflow:hidden;white-space:nowrap;opacity:{op}">{t}</div>'
+                    )
+                if len(evs) > 3:
+                    ev_pills += f'<div style="font-size:9px;color:#64748B;margin-top:2px">+{len(evs)-3} mais</div>'
+
+                st.markdown(
+                    f'<div style="border:1px solid #1E293B;border-radius:6px;'
+                    f'padding:4px;min-height:78px;background:#0F172A;cursor:pointer">'
+                    f'<div style="display:inline-block;width:22px;height:22px;line-height:22px;'
+                    f'border-radius:50%;background:{num_bg};color:{num_color};'
+                    f'font-size:12px;font-weight:600;text-align:center">{day.day}</div>'
+                    f'{ev_pills}</div>',
+                    unsafe_allow_html=True,
+                )
+
+                # Botão para ir à semana deste dia
+                if st.button("", key=f"mo_day_{day}", help=f"Ver semana de {day.strftime('%d/%m')}",
+                             use_container_width=True):
+                    st.session_state['_cal_ref']  = day
+                    st.session_state['_cal_view'] = 'weekly'
+                    st.session_state['_cal_new_date'] = day
+                    st.rerun()
+
+        st.markdown("<div style='margin-bottom:2px'></div>", unsafe_allow_html=True)
+
+
+# ─── FORMULÁRIO DE EVENTO ──────────────────────────────────────────────────────
+
+def _form_event():
+    """Cria ou edita evento — sincronizado automaticamente com a tabela de atividades."""
+    edit_id = st.session_state.get('_cal_edit_id')
+
+    # Se editando, busca dados existentes
+    existing = None
+    if edit_id:
+        df_all = get_activities()
+        rows   = df_all[df_all['id'] == edit_id] if not df_all.empty else pd.DataFrame()
+        existing = rows.iloc[0] if not rows.empty else None
+
+    title_form = "✏️ Editar Evento" if existing is not None else "➕ Novo Evento"
+    with st.expander(title_form, expanded=(existing is not None),
+                     key=f"exp_ev_{st.session_state.get('_ev_key',0)}"):
+
+        if '_ev_key' not in st.session_state: st.session_state['_ev_key'] = 0
+        ek = st.session_state['_ev_key']
+
+        def _v(field, default):
+            return existing.get(field, default) if existing is not None else default
+
+        c1, c2 = st.columns(2)
+        ev_title = c1.text_input("Título*", value=str(_v('title','')), key=f"ev_tit_{ek}")
+        ev_type  = c2.selectbox("Tipo", list(EVENT_TYPES.keys()),
+                                 index=list(EVENT_TYPES.keys()).index(str(_v('event_type','Tarefa')))
+                                 if _v('event_type','Tarefa') in EVENT_TYPES else 0,
+                                 key=f"ev_tp_{ek}")
+        ev_color = EVENT_TYPES[ev_type]
+
+        d1, d2 = st.columns(2)
+
+        # Parse existing date
+        def _parse_date(v):
+            if v is None or (isinstance(v, float) and pd.isna(v)): return date.today()
+            if hasattr(v, 'date'): return v.date()
+            if isinstance(v, date): return v
+            try: return pd.to_datetime(v).date()
+            except: return date.today()
+
+        ev_date  = d1.date_input("Data do evento*",
+                                  value=_parse_date(_v('start_date', st.session_state.get('_cal_new_date', date.today()))),
+                                  key=f"ev_dt_{ek}")
+
+        # Parse existing time
+        def _parse_time(v):
+            if v is None or (isinstance(v, float) and pd.isna(v)): return None
+            if hasattr(v, 'hour'): return v
+            try:
+                parts = str(v).split(':')
+                return dtime(int(parts[0]), int(parts[1]))
+            except: return None
+
+        t1, t2 = st.columns(2)
+        ev_start = t1.time_input("Início*", value=_parse_time(_v('start_time', dtime(8,0))) or dtime(8,0), key=f"ev_st_{ek}")
+        ev_end   = t2.time_input("Fim",     value=_parse_time(_v('end_time',   dtime(9,0))) or dtime(9,0), key=f"ev_et_{ek}")
+
+        ev_desc = st.text_area("Descrição", value=str(_v('description','') or ''),
+                                height=60, key=f"ev_ds_{ek}")
+
+        p1, p2 = st.columns(2)
+        ev_priority = p1.selectbox("Prioridade", PRIORITIES,
+                                    index=PRIORITIES.index(str(_v('priority','Importante não Urgente')))
+                                    if _v('priority','Importante não Urgente') in PRIORITIES else 2,
+                                    key=f"ev_pr_{ek}")
+        ev_status   = p2.selectbox("Status", STATUS_LIST,
+                                    index=STATUS_LIST.index(str(_v('status','Não iniciado')))
+                                    if _v('status','Não iniciado') in STATUS_LIST else 0,
+                                    key=f"ev_ss_{ek}")
+
+        # Preview da cor
+        st.markdown(
+            f'<div style="background:{ev_color};border-radius:6px;padding:6px 12px;'
+            f'display:inline-block;color:#fff;font-size:12px;margin-top:4px">'
+            f'● {ev_type}</div>',
+            unsafe_allow_html=True,
+        )
+
+        btn_lbl = "💾 Salvar evento" if existing is None else "💾 Atualizar evento"
+        col_s, col_c = st.columns([2, 1]) if existing is not None else (st.columns([1, 0])[0], None)
+
+        if (col_s if existing is None else col_s).button(
+            btn_lbl, key=f"ev_btn_{ek}", type="primary", use_container_width=True
+        ):
+            if ev_title.strip():
+                data = dict(
+                    title       = ev_title.strip(),
+                    description = ev_desc.strip() or None,
+                    start_date  = ev_date,
+                    end_date    = ev_date,
+                    priority    = ev_priority,
+                    status      = ev_status,
+                    event_type  = ev_type,
+                    event_color = ev_color,
+                    start_time  = ev_start,
+                    end_time    = ev_end,
+                )
+                if existing is not None:
+                    data['id'] = int(existing['id'])
+                    data['parent_id'] = existing.get('parent_id')
+
+                upsert_activity(data)
+                st.toast(f"✅ Evento '{ev_title}' {'atualizado' if existing else 'criado'}!", icon="📅")
+                st.session_state['_ev_key'] += 1
+                st.session_state['_cal_edit_id'] = None
+                st.session_state['_cal_new_date'] = ev_date
+                _reload()
+            else:
+                st.error("Título é obrigatório.")
+
+        if existing is not None and col_c:
+            if col_c.button("❌ Cancelar edição", key=f"ev_cancel_{ek}", use_container_width=True):
+                st.session_state['_cal_edit_id'] = None
+                st.rerun()
+
+            st.markdown("---")
+            if st.button(f"🗑️ Excluir este evento e atividade", key=f"ev_del_{ek}",
+                          use_container_width=True):
+                delete_activity(int(existing['id']))
+                st.session_state['_cal_edit_id'] = None
+                st.toast("🗑️ Evento excluído.", icon="🗑️")
+                _reload()
