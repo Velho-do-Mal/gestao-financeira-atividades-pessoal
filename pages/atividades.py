@@ -11,11 +11,12 @@ Abas:
 import streamlit as st
 import pandas as pd
 from datetime import date, timedelta, datetime
+import uuid
 
 from database.queries import (
     get_activities, upsert_activity, delete_activity,
     get_action_plans, upsert_action_plan, delete_action_plan,
-    get_calendar_events, clear_data_cache,
+    get_calendar_events, delete_recurrence_group_activities, clear_data_cache,
 )
 from datetime import time as dtime
 from dateutil.relativedelta import relativedelta
@@ -910,37 +911,30 @@ def _render_monthly(ref: date):
 # ─── FORMULÁRIO DE EVENTO ──────────────────────────────────────────────────────
 
 def _form_event():
-    """Cria ou edita evento — sincronizado automaticamente com a tabela de atividades."""
-    edit_id = st.session_state.get('_cal_edit_id')
-
-    # Se editando, busca dados existentes
+    """
+    Cria ou edita evento de calendário.
+    Sincronizado bidirecionalmente com a tabela de atividades.
+    Suporta recorrência: Não repete | Diariamente | Semanalmente | Mensalmente.
+    """
+    edit_id  = st.session_state.get('_cal_edit_id')
     existing = None
     if edit_id:
         df_all = get_activities()
         rows   = df_all[df_all['id'] == edit_id] if not df_all.empty else pd.DataFrame()
         existing = rows.iloc[0] if not rows.empty else None
 
-    title_form = "✏️ Editar Evento" if existing is not None else "➕ Novo Evento"
+    title_form = "✏️ Editar Evento" if existing is not None else "➕ Novo Evento / Bloco"
     with st.expander(title_form, expanded=(existing is not None),
                      key=f"exp_ev_{st.session_state.get('_ev_key',0)}"):
 
         if '_ev_key' not in st.session_state: st.session_state['_ev_key'] = 0
         ek = st.session_state['_ev_key']
 
-        def _v(field, default):
-            return existing.get(field, default) if existing is not None else default
+        def _v(field, default=None):
+            if existing is None: return default
+            val = existing.get(field, default)
+            return default if (val is None or (isinstance(val, float) and pd.isna(val))) else val
 
-        c1, c2 = st.columns(2)
-        ev_title = c1.text_input("Título*", value=str(_v('title','')), key=f"ev_tit_{ek}")
-        ev_type  = c2.selectbox("Tipo", list(EVENT_TYPES.keys()),
-                                 index=list(EVENT_TYPES.keys()).index(str(_v('event_type','Tarefa')))
-                                 if _v('event_type','Tarefa') in EVENT_TYPES else 0,
-                                 key=f"ev_tp_{ek}")
-        ev_color = EVENT_TYPES[ev_type]
-
-        d1, d2 = st.columns(2)
-
-        # Parse existing date
         def _parse_date(v):
             if v is None or (isinstance(v, float) and pd.isna(v)): return date.today()
             if hasattr(v, 'date'): return v.date()
@@ -948,55 +942,110 @@ def _form_event():
             try: return pd.to_datetime(v).date()
             except: return date.today()
 
-        ev_date  = d1.date_input("Data do evento*",
-                                  value=_parse_date(_v('start_date', st.session_state.get('_cal_new_date', date.today()))),
-                                  key=f"ev_dt_{ek}")
-
-        # Parse existing time
         def _parse_time(v):
             if v is None or (isinstance(v, float) and pd.isna(v)): return None
             if hasattr(v, 'hour'): return v
             try:
-                parts = str(v).split(':')
-                return dtime(int(parts[0]), int(parts[1]))
+                p = str(v).split(':')
+                return dtime(int(p[0]), int(p[1]))
             except: return None
 
-        t1, t2 = st.columns(2)
-        ev_start = t1.time_input("Início*", value=_parse_time(_v('start_time', dtime(8,0))) or dtime(8,0), key=f"ev_st_{ek}")
-        ev_end   = t2.time_input("Fim",     value=_parse_time(_v('end_time',   dtime(9,0))) or dtime(9,0), key=f"ev_et_{ek}")
+        # ── Linha 1: Título + Tipo ────────────────────────────────────────────
+        c1, c2 = st.columns(2)
+        ev_title = c1.text_input("Título*", value=str(_v('title', '')), key=f"ev_tit_{ek}")
+        ev_type  = c2.selectbox(
+            "Tipo", list(EVENT_TYPES.keys()),
+            index=list(EVENT_TYPES.keys()).index(_v('event_type','Tarefa'))
+                  if _v('event_type','Tarefa') in EVENT_TYPES else 0,
+            key=f"ev_tp_{ek}",
+        )
+        ev_color = EVENT_TYPES[ev_type]
 
-        ev_desc = st.text_area("Descrição", value=str(_v('description','') or ''),
-                                height=60, key=f"ev_ds_{ek}")
+        # ── Linha 2: Data + Horários ──────────────────────────────────────────
+        d1, t1, t2 = st.columns(3)
+        ev_date  = d1.date_input(
+            "Data*",
+            value=_parse_date(_v('start_date', st.session_state.get('_cal_new_date', date.today()))),
+            key=f"ev_dt_{ek}",
+        )
+        ev_start = t1.time_input(
+            "Início*",
+            value=_parse_time(_v('start_time')) or dtime(8, 0),
+            key=f"ev_st_{ek}",
+        )
+        ev_end = t2.time_input(
+            "Fim",
+            value=_parse_time(_v('end_time')) or dtime(9, 0),
+            key=f"ev_et_{ek}",
+        )
 
+        # ── Linha 3: Descrição ────────────────────────────────────────────────
+        ev_desc = st.text_area(
+            "Descrição", value=str(_v('description', '') or ''),
+            height=60, key=f"ev_ds_{ek}",
+        )
+
+        # ── Linha 4: Prioridade + Status ──────────────────────────────────────
         p1, p2 = st.columns(2)
-        ev_priority = p1.selectbox("Prioridade", PRIORITIES,
-                                    index=PRIORITIES.index(str(_v('priority','Importante não Urgente')))
-                                    if _v('priority','Importante não Urgente') in PRIORITIES else 2,
-                                    key=f"ev_pr_{ek}")
-        ev_status   = p2.selectbox("Status", STATUS_LIST,
-                                    index=STATUS_LIST.index(str(_v('status','Não iniciado')))
-                                    if _v('status','Não iniciado') in STATUS_LIST else 0,
-                                    key=f"ev_ss_{ek}")
+        ev_priority = p1.selectbox(
+            "Prioridade", PRIORITIES,
+            index=PRIORITIES.index(_v('priority','Importante não Urgente'))
+                  if _v('priority','Importante não Urgente') in PRIORITIES else 2,
+            key=f"ev_pr_{ek}",
+        )
+        ev_status = p2.selectbox(
+            "Status", STATUS_LIST,
+            index=STATUS_LIST.index(_v('status','Não iniciado'))
+                  if _v('status','Não iniciado') in STATUS_LIST else 0,
+            key=f"ev_ss_{ek}",
+        )
+
+        # ── Recorrência (apenas para eventos novos) ───────────────────────────
+        if existing is None:
+            st.markdown("**🔁 Recorrência**")
+            r1, r2 = st.columns(2)
+            rec_type = r1.selectbox(
+                "Repetir",
+                ["Não repete", "Todo dia", "Toda semana", "Todo mês"],
+                key=f"ev_rt_{ek}",
+            )
+            rec_count = r2.number_input(
+                "Nº de repetições",
+                min_value=1, max_value=365, value=4,
+                disabled=(rec_type == "Não repete"),
+                key=f"ev_rc_{ek}",
+                help="Quantas vezes o evento se repete após a data inicial",
+            )
+        else:
+            rec_type  = "Não repete"
+            rec_count = 1
 
         # Preview da cor
         st.markdown(
-            f'<div style="background:{ev_color};border-radius:6px;padding:6px 12px;'
-            f'display:inline-block;color:#fff;font-size:12px;margin-top:4px">'
+            f'<div style="background:{ev_color};border-radius:6px;padding:5px 12px;'
+            f'display:inline-block;color:#fff;font-size:12px;margin:6px 0">'
             f'● {ev_type}</div>',
             unsafe_allow_html=True,
         )
 
-        btn_lbl = "💾 Salvar evento" if existing is None else "💾 Atualizar evento"
-        col_s, col_c = st.columns([2, 1]) if existing is not None else (st.columns([1, 0])[0], None)
+        # ── Botões ────────────────────────────────────────────────────────────
+        if existing is not None:
+            col_s, col_c = st.columns([2, 1])
+        else:
+            col_s = st.container()
+            col_c = None
 
-        if (col_s if existing is None else col_s).button(
-            btn_lbl, key=f"ev_btn_{ek}", type="primary", use_container_width=True
-        ):
-            if ev_title.strip():
-                data = dict(
+        btn_lbl = "💾 Salvar evento" if existing is None else "💾 Atualizar evento"
+        if col_s.button(btn_lbl, key=f"ev_btn_{ek}", type="primary",
+                        use_container_width=True):
+            if not ev_title.strip():
+                st.error("Título é obrigatório.")
+            elif ev_end <= ev_start:
+                st.error("Horário de fim deve ser após o início.")
+            else:
+                base_data = dict(
                     title       = ev_title.strip(),
                     description = ev_desc.strip() or None,
-                    start_date  = ev_date,
                     end_date    = ev_date,
                     priority    = ev_priority,
                     status      = ev_status,
@@ -1005,28 +1054,78 @@ def _form_event():
                     start_time  = ev_start,
                     end_time    = ev_end,
                 )
+
                 if existing is not None:
-                    data['id'] = int(existing['id'])
-                    data['parent_id'] = existing.get('parent_id')
+                    # Editar evento único
+                    base_data['id']         = int(existing['id'])
+                    base_data['parent_id']  = existing.get('parent_id')
+                    base_data['start_date'] = ev_date
+                    upsert_activity(base_data)
+                    n_created = 1
+                else:
+                    # Criar evento(s) com ou sem recorrência
+                    dates_to_create = _get_recurrence_dates(ev_date, rec_type, int(rec_count))
+                    rec_group_id = str(uuid.uuid4()) if len(dates_to_create) > 1 else None
 
-                upsert_activity(data)
-                st.toast(f"✅ Evento '{ev_title}' {'atualizado' if existing else 'criado'}!", icon="📅")
-                st.session_state['_ev_key'] += 1
-                st.session_state['_cal_edit_id'] = None
-                st.session_state['_cal_new_date'] = ev_date
+                    for d in dates_to_create:
+                        row = {**base_data, 'start_date': d, 'end_date': d}
+                        if rec_group_id:
+                            row['recurrence_group_id'] = rec_group_id
+                        upsert_activity(row)
+                    n_created = len(dates_to_create)
+
+                lbl = f"{n_created}x " if n_created > 1 else ""
+                action = "atualizado" if existing else "criado"
+                st.toast(f"✅ {lbl}Evento '{ev_title}' {action}!", icon="📅")
+                st.session_state['_ev_key']       += 1
+                st.session_state['_cal_edit_id']   = None
+                st.session_state['_cal_new_date']  = ev_date
                 _reload()
-            else:
-                st.error("Título é obrigatório.")
 
-        if existing is not None and col_c:
-            if col_c.button("❌ Cancelar edição", key=f"ev_cancel_{ek}", use_container_width=True):
+        if existing is not None and col_c is not None:
+            if col_c.button("❌ Cancelar", key=f"ev_cancel_{ek}",
+                            use_container_width=True):
                 st.session_state['_cal_edit_id'] = None
                 st.rerun()
 
             st.markdown("---")
-            if st.button(f"🗑️ Excluir este evento e atividade", key=f"ev_del_{ek}",
-                          use_container_width=True):
-                delete_activity(int(existing['id']))
-                st.session_state['_cal_edit_id'] = None
-                st.toast("🗑️ Evento excluído.", icon="🗑️")
-                _reload()
+            # Excluir este evento OU toda a série
+            rec_gid = existing.get('recurrence_group_id')
+            has_rec = rec_gid and not (isinstance(rec_gid, float) and pd.isna(rec_gid))
+
+            if has_rec:
+                cd1, cd2 = st.columns(2)
+                if cd1.button("🗑️ Só este", key=f"ev_del1_{ek}",
+                              use_container_width=True):
+                    delete_activity(int(existing['id']))
+                    st.session_state['_cal_edit_id'] = None
+                    st.toast("🗑️ Evento excluído.", icon="🗑️")
+                    _reload()
+                if cd2.button("🗑️ Toda a série", key=f"ev_del2_{ek}",
+                              use_container_width=True):
+                    delete_recurrence_group_activities(str(rec_gid))
+                    st.session_state['_cal_edit_id'] = None
+                    st.toast("🗑️ Série excluída.", icon="🗑️")
+                    _reload()
+            else:
+                if st.button("🗑️ Excluir evento", key=f"ev_del_{ek}",
+                             use_container_width=True):
+                    delete_activity(int(existing['id']))
+                    st.session_state['_cal_edit_id'] = None
+                    st.toast("🗑️ Evento excluído.", icon="🗑️")
+                    _reload()
+
+
+def _get_recurrence_dates(start: date, rec_type: str, count: int) -> list:
+    """Gera lista de datas para eventos recorrentes."""
+    if rec_type == "Não repete" or count <= 1:
+        return [start]
+    dates = [start]
+    for i in range(1, count):
+        if rec_type == "Todo dia":
+            dates.append(start + timedelta(days=i))
+        elif rec_type == "Toda semana":
+            dates.append(start + timedelta(weeks=i))
+        elif rec_type == "Todo mês":
+            dates.append(start + relativedelta(months=i))
+    return dates
