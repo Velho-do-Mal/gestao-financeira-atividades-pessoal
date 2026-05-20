@@ -12,6 +12,19 @@ import streamlit as st
 import pandas as pd
 from datetime import date, timedelta, datetime
 import uuid
+try:
+    from zoneinfo import ZoneInfo          # Python 3.9+
+    _TZ_BRASILIA = ZoneInfo("America/Sao_Paulo")
+except ImportError:
+    import pytz
+    _TZ_BRASILIA = pytz.timezone("America/Sao_Paulo")
+
+
+def _now_brasilia():
+    """Retorna datetime atual no horário de Brasília."""""
+    from datetime import timezone
+    now_utc = datetime.now(timezone.utc)
+    return now_utc.astimezone(_TZ_BRASILIA)
 
 from database.queries import (
     get_activities, upsert_activity, delete_activity,
@@ -738,7 +751,7 @@ def _render_weekly(ref: date):
 
         # Current time indicator
         if d == today:
-            now = datetime.now()
+            now = _now_brasilia()
             mins_from_start = (now.hour - HOUR_START) * 60 + now.minute
             if 0 <= mins_from_start <= (HOUR_END - HOUR_START) * 60:
                 top_now = mins_from_start / 60 * HOUR_PX
@@ -1006,19 +1019,32 @@ def _form_event():
             r1, r2 = st.columns(2)
             rec_type = r1.selectbox(
                 "Repetir",
-                ["Não repete", "Todo dia", "Toda semana", "Todo mês"],
+                ["Não repete", "Todo dia", "Toda semana", "Todo mês", "Personalizado"],
                 key=f"ev_rt_{ek}",
             )
             rec_count = r2.number_input(
-                "Nº de repetições",
-                min_value=1, max_value=365, value=4,
+                "Nº de semanas" if rec_type == "Personalizado" else "Nº de repetições",
+                min_value=1, max_value=52, value=4,
                 disabled=(rec_type == "Não repete"),
                 key=f"ev_rc_{ek}",
-                help="Quantas vezes o evento se repete após a data inicial",
+                help="Para personalizado: quantas semanas no futuro gerar",
             )
+            # Seletor de dias da semana para recorrência personalizada
+            rec_custom_days = []
+            if rec_type == "Personalizado":
+                st.caption("Selecione os dias da semana que o bloco deve ocorrer:")
+                dc = st.columns(7)
+                day_labels = ["Seg","Ter","Qua","Qui","Sex","Sáb","Dom"]
+                for i, (col, lbl) in enumerate(zip(dc, day_labels)):
+                    if col.checkbox(lbl, key=f"ev_cd_{ek}_{i}",
+                                    value=(i == ev_date.weekday())):
+                        rec_custom_days.append(i)
+                if not rec_custom_days:
+                    st.warning("Selecione ao menos um dia da semana.")
         else:
-            rec_type  = "Não repete"
-            rec_count = 1
+            rec_type       = "Não repete"
+            rec_count      = 1
+            rec_custom_days = []
 
         # Preview da cor
         st.markdown(
@@ -1040,6 +1066,8 @@ def _form_event():
                         use_container_width=True):
             if not ev_title.strip():
                 st.error("Título é obrigatório.")
+            elif rec_type == "Personalizado" and not rec_custom_days:
+                st.error("Selecione ao menos um dia da semana para recorrência personalizada.")
             elif ev_end <= ev_start:
                 st.error("Horário de fim deve ser após o início.")
             else:
@@ -1064,7 +1092,7 @@ def _form_event():
                     n_created = 1
                 else:
                     # Criar evento(s) com ou sem recorrência
-                    dates_to_create = _get_recurrence_dates(ev_date, rec_type, int(rec_count))
+                    dates_to_create = _get_recurrence_dates(ev_date, rec_type, int(rec_count), rec_custom_days)
                     rec_group_id = str(uuid.uuid4()) if len(dates_to_create) > 1 else None
 
                     for d in dates_to_create:
@@ -1116,10 +1144,29 @@ def _form_event():
                     _reload()
 
 
-def _get_recurrence_dates(start: date, rec_type: str, count: int) -> list:
-    """Gera lista de datas para eventos recorrentes."""
-    if rec_type == "Não repete" or count <= 1:
+def _get_recurrence_dates(start: date, rec_type: str, count: int,
+                          custom_days: list = None) -> list:
+    """
+    Gera lista de datas para eventos recorrentes.
+    custom_days: lista de weekdays (0=Seg … 6=Dom) para modo Personalizado.
+    count: número de repetições (ou semanas para Personalizado).
+    """
+    if rec_type == "Não repete":
         return [start]
+
+    if rec_type == "Personalizado":
+        # Gera todas as ocorrências dos dias selecionados nas próximas `count` semanas
+        if not custom_days:
+            return [start]
+        dates = []
+        for week in range(count):
+            week_monday = start - timedelta(days=start.weekday()) + timedelta(weeks=week)
+            for wd in sorted(custom_days):
+                d = week_monday + timedelta(days=wd)
+                if d >= start:   # não gera datas antes do início
+                    dates.append(d)
+        return sorted(set(dates)) if dates else [start]
+
     dates = [start]
     for i in range(1, count):
         if rec_type == "Todo dia":
