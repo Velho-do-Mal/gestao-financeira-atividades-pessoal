@@ -427,11 +427,13 @@ def run_flow_migrations():
 
 # ─── CALENDÁRIO — novos campos em activities ─────────────────────────────────
 CALENDAR_MIGRATIONS = [
-    "ALTER TABLE activities ADD COLUMN IF NOT EXISTS start_time  TIME",
-    "ALTER TABLE activities ADD COLUMN IF NOT EXISTS end_time    TIME",
-    "ALTER TABLE activities ADD COLUMN IF NOT EXISTS event_color VARCHAR(10) DEFAULT '#3B82F6'",
-    "ALTER TABLE activities ADD COLUMN IF NOT EXISTS event_type  VARCHAR(50) DEFAULT 'Tarefa'",
-    "CREATE INDEX IF NOT EXISTS idx_activities_start_date ON activities(start_date)",
+    "ALTER TABLE activities ADD COLUMN IF NOT EXISTS start_time          TIME",
+    "ALTER TABLE activities ADD COLUMN IF NOT EXISTS end_time            TIME",
+    "ALTER TABLE activities ADD COLUMN IF NOT EXISTS event_color         VARCHAR(10) DEFAULT '#3B82F6'",
+    "ALTER TABLE activities ADD COLUMN IF NOT EXISTS event_type          VARCHAR(50) DEFAULT 'Tarefa'",
+    "ALTER TABLE activities ADD COLUMN IF NOT EXISTS recurrence_group_id UUID",
+    "CREATE INDEX IF NOT EXISTS idx_activities_start_date    ON activities(start_date)",
+    "CREATE INDEX IF NOT EXISTS idx_activities_rec_group     ON activities(recurrence_group_id)",
 ]
 
 

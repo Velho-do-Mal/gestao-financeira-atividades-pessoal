@@ -542,6 +542,8 @@ def upsert_activity(data: dict):
     event_color = data.get('event_color') or '#3B82F6'
     event_type  = data.get('event_type')  or 'Tarefa'
 
+    rec_group = data.get('recurrence_group_id') or None
+
     if act_id:
         execute_query("""
             UPDATE activities
@@ -556,16 +558,24 @@ def upsert_activity(data: dict):
         rows = execute_query("""
             INSERT INTO activities
                 (title, description, start_date, end_date, priority, status, parent_id,
-                 start_time, end_time, event_color, event_type)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id
+                 start_time, end_time, event_color, event_type, recurrence_group_id)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id
         """, (title, desc, start_d, end_d, priority, status, parent_id,
-              start_time, end_time, event_color, event_type))
+              start_time, end_time, event_color, event_type, rec_group))
         return rows[0]['id'] if rows else None
 
 
 def delete_activity(activity_id: int):
     """Exclui atividade e todos os seus filhos (ON DELETE CASCADE garante netos também)."""
     execute_query("DELETE FROM activities WHERE id=%s", (activity_id,), fetch=False)
+
+
+def delete_recurrence_group_activities(group_id: str):
+    """Exclui todas as ocorrências de uma série recorrente."""
+    execute_query(
+        "DELETE FROM activities WHERE recurrence_group_id::text = %s",
+        (str(group_id),), fetch=False,
+    )
 
 
 @st.cache_data(ttl=30, show_spinner=False)
