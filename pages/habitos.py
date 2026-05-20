@@ -255,7 +255,8 @@ def _tab_visao_geral():
                                       x=0.5, y=0.5, font_size=18,
                                       font_color='#F1F5F9', showarrow=False)],
                 )
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, use_container_width=True,
+                                key=f"donut_habit_{habit_id}")
 
             with c_bar:
                 # Mini heatmap dos últimos 30 dias

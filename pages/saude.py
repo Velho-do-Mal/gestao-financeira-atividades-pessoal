@@ -112,7 +112,7 @@ def _view_workout_plan():
                                   template='plotly_dark', markers=True)
                     fig.update_layout(height=220, margin=dict(l=0,r=0,t=30,b=0),
                                       paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
-                    st.plotly_chart(fig, use_container_width=True)
+                    st.plotly_chart(fig, use_container_width=True, key=f"ev_{int(ex['id'])}")
 
                 st.markdown("---")
 

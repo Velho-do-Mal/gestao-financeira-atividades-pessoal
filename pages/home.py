@@ -71,7 +71,8 @@ def render():
                 current = float(goal.get('current_value') or 0)
                 if target > 0:
                     st.plotly_chart(gauge_goal(current, target, goal['title']),
-                                    use_container_width=True, config={"displayModeBar": False})
+                                    use_container_width=True, config={"displayModeBar": False},
+                                    key=f"gauge_{int(goal['id'])}")
                 else:
                     st.markdown(f"""
                     <div style="background:#1E293B;border-radius:10px;padding:16px;
