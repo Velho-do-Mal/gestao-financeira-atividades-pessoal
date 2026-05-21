@@ -14,7 +14,7 @@ from datetime import date, time as dtime
 from database.queries_saude import (
     # Musculação
     get_divisions, upsert_division, delete_division,
-    get_exercises, upsert_exercise, delete_exercise,
+    get_exercises, upsert_exercise, delete_exercise, update_exercise_order,
     get_exercise_sets, upsert_exercise_set, delete_exercise_set,
     get_workout_log, get_weight_history, save_workout_log,
     # Nutrição
@@ -189,13 +189,37 @@ def _manage_divisions():
         ex_row = df_ex[df_ex['name'] == sel_ex_name].iloc[0]
         ex_id  = int(ex_row['id'])
 
-        # Mostrar/editar exercícios com botão excluir
-        with st.expander("📋 Todos os exercícios desta divisão", expanded=False):
-            for _, ex in df_ex.iterrows():
-                ec1, ec2 = st.columns([4, 1])
-                ec1.markdown(f"• **{ex['name']}** {ex.get('equipment','') or ''}")
-                if ec2.button("🗑️", key=f"del_ex_{ex['id']}"):
-                    delete_exercise(int(ex['id']))
+        # Lista de exercícios com reordenação e exclusão
+        with st.expander("📋 Exercícios desta divisão — arrastar para reordenar", expanded=False):
+            st.caption("Use ↑ ↓ para mudar a ordem dos exercícios no treino.")
+            for i, (_, ex) in enumerate(df_ex.iterrows()):
+                ex_id_row = int(ex['id'])
+                ec1, ec_up, ec_dn, ec2 = st.columns([5, 1, 1, 1])
+                ec1.markdown(f"**{i+1}.** {ex['name']} "
+                             f"{'· ' + ex['equipment'] if ex.get('equipment') else ''}")
+                # Mover para cima
+                if i > 0:
+                    if ec_up.button("↑", key=f"up_ex_{ex_id_row}", help="Mover para cima"):
+                        prev_id = int(df_ex.iloc[i-1]['id'])
+                        update_exercise_order(ex_id_row, i - 1)
+                        update_exercise_order(prev_id, i)
+                        st.toast("✅ Ordem atualizada!", icon="✅")
+                        _reload()
+                else:
+                    ec_up.markdown("&nbsp;", unsafe_allow_html=True)
+                # Mover para baixo
+                if i < len(df_ex) - 1:
+                    if ec_dn.button("↓", key=f"dn_ex_{ex_id_row}", help="Mover para baixo"):
+                        next_id = int(df_ex.iloc[i+1]['id'])
+                        update_exercise_order(ex_id_row, i + 1)
+                        update_exercise_order(next_id, i)
+                        st.toast("✅ Ordem atualizada!", icon="✅")
+                        _reload()
+                else:
+                    ec_dn.markdown("&nbsp;", unsafe_allow_html=True)
+                # Excluir
+                if ec2.button("🗑️", key=f"del_ex_{ex_id_row}"):
+                    delete_exercise(ex_id_row)
                     st.toast("🗑️ Exercício excluído.", icon="🗑️")
                     _reload()
 
