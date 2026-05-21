@@ -449,3 +449,38 @@ def run_calendar_migrations():
     except Exception as e:
         logger.error(f"❌ Erro migrações Calendário: {e}")
         raise
+
+
+
+# ─── FUNÇÃO UNIFICADA ────────────────────────────────────────────────────────
+def run_all_migrations():
+    """
+    Executa TODAS as migrations — idempotente (IF NOT EXISTS em tudo).
+    Chamada a cada nova sessão via st.session_state para garantir
+    que novas colunas sejam criadas mesmo com cache de deploy anterior.
+    """
+    from database.connection import db_cursor
+    import logging
+    logger = logging.getLogger(__name__)
+
+    try:
+        # 1. Schema base (transactions, activities, categories...)
+        run_migrations()
+
+        # 2. Saúde
+        run_health_migrations()
+
+        # 3. Hábitos
+        run_habits_migrations()
+
+        # 4. Flow
+        run_flow_migrations()
+
+        # 5. Calendário (colunas extras em activities)
+        run_calendar_migrations()
+
+        logger.info("✅ Todas as migrations OK")
+        return True
+    except Exception as e:
+        logger.error(f"❌ run_all_migrations falhou: {e}")
+        return False
