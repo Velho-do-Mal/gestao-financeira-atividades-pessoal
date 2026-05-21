@@ -143,19 +143,19 @@ def _step_diary():
     with st.form("form_diary", clear_on_submit=False):
         went_well = st.text_area(
             "🌟 O que foi bem ontem?",
-            value=existing.get('went_well', '') if existing else '',
+            value=str(existing.get('went_well') or '') if existing else '',
             height=80,
             placeholder="Liste as conquistas, grandes ou pequenas..."
         )
         could_improve = st.text_area(
             "🔧 O que poderia ter sido melhor?",
-            value=existing.get('could_improve', '') if existing else '',
+            value=str(existing.get('could_improve') or '') if existing else '',
             height=80,
             placeholder="Sem julgamentos — apenas observações para crescer..."
         )
         gratitude = st.text_area(
             "🙏 Pelo que sou grato(a)?",
-            value=existing.get('gratitude', '') if existing else '',
+            value=str(existing.get('gratitude') or '') if existing else '',
             height=70,
             placeholder="3 coisas pelas quais você é grato(a)..."
         )
@@ -163,11 +163,11 @@ def _step_diary():
         day_score = c1.slider(
             "⭐ Nota do dia (1–10)",
             1, 10,
-            int(existing.get('day_score', 7)) if existing else 7,
+            int(existing.get('day_score') or 7) if existing else 7,
         )
         notes = c2.text_area(
             "📝 Observações livres",
-            value=existing.get('notes', '') if existing else '',
+            value=str(existing.get('notes') or '') if existing else '',
             height=70,
             placeholder="Qualquer pensamento adicional..."
         )
