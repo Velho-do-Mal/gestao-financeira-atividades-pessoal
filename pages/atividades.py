@@ -834,6 +834,9 @@ def _render_weekly(ref: date):
     import streamlit.components.v1 as stcomp
     stcomp.html(cal_html, height=640, scrolling=False)
 
+    # ── Lista de eventos da semana (interativa) ───────────────────────────────
+    _render_event_list(events_by_day, week_dates)
+
 
 # ─── VISUALIZAÇÃO MENSAL ───────────────────────────────────────────────────────
 
@@ -919,6 +922,129 @@ def _render_monthly(ref: date):
                     st.rerun()
 
         st.markdown("<div style='margin-bottom:2px'></div>", unsafe_allow_html=True)
+
+    # ── Lista de eventos do mês (interativa) ─────────────────────────────────
+    all_month_events = []
+    for evs in events_by_day.values():
+        all_month_events.extend(evs)
+    all_month_events.sort(key=lambda e: (
+        e.get('start_date') if not hasattr(e.get('start_date'), 'date') else e.get('start_date').date(),
+        str(e.get('start_time') or ''),
+    ))
+    _render_event_list({}, [], all_events=all_month_events)
+
+
+# ─── LISTA DE EVENTOS INTERATIVA ─────────────────────────────────────────────
+
+def _render_event_list(events_by_day: dict, week_dates: list, all_events: list = None):
+    """
+    Lista clicável de eventos abaixo do calendário.
+    Cada evento tem botões ✏️ Editar e 🗑️ Excluir.
+    """
+    # Monta lista final
+    if all_events is not None:
+        events = all_events
+    else:
+        events = []
+        for d in week_dates:
+            events.extend(events_by_day.get(d, []))
+
+    if not events:
+        st.markdown(
+            '<div style="text-align:center;color:#334155;font-size:13px;padding:16px 0">'
+            'Nenhum evento neste período. Use <b>➕ Novo Evento</b> abaixo para criar.</div>',
+            unsafe_allow_html=True,
+        )
+        return
+
+    st.markdown("---")
+    st.markdown(f"**{len(events)} evento(s) — clique para editar ou excluir**")
+
+    for ev in events:
+        ev_id   = int(ev['id'])
+        color   = ev.get('event_color') or '#3B82F6'
+        title   = str(ev.get('title', ''))
+        status  = str(ev.get('status', ''))
+
+        # Data e hora
+        ev_date = ev.get('start_date')
+        if hasattr(ev_date, 'date'): ev_date = ev_date.date()
+        date_str = ev_date.strftime('%d/%m') if ev_date else ''
+
+        st_obj = ev.get('start_time')
+        et_obj = ev.get('end_time')
+        def _fmt_time(t):
+            if t is None: return ''
+            if hasattr(t, 'hour'): return f"{t.hour:02d}:{t.minute:02d}"
+            try:
+                p = str(t).split(':')
+                return f"{int(p[0]):02d}:{int(p[1]):02d}"
+            except: return str(t)[:5]
+
+        time_str  = _fmt_time(st_obj)
+        time_end  = _fmt_time(et_obj)
+        time_disp = f"{time_str}–{time_end}" if time_end else time_str
+        ev_type   = str(ev.get('event_type', ''))
+        is_done   = (status == 'Concluído')
+
+        # Ícone de status
+        status_icon = "✅" if is_done else ("⏳" if status == 'Em andamento' else "🔵")
+
+        col_info, col_edit, col_del = st.columns([6, 1, 1])
+        with col_info:
+            st.markdown(
+                f'<div style="background:#1E293B;border-radius:8px;padding:8px 14px;'
+                f'border-left:4px solid {color};'
+                f'opacity:{"0.6" if is_done else "1"}">'
+                f'<span style="color:#F1F5F9;font-weight:500">{status_icon} {title}</span>'
+                f'<span style="color:#64748B;font-size:12px;margin-left:10px">'
+                f'{date_str} · {time_disp} · {ev_type}</span>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+
+        # Botão editar — abre formulário preenchido
+        with col_edit:
+            if st.button("✏️", key=f"ev_edit_{ev_id}",
+                          help="Editar este evento"):
+                st.session_state['_cal_edit_id']  = ev_id
+                st.session_state['_cal_view']     = st.session_state.get('_cal_view', 'weekly')
+                st.rerun()
+
+        # Botão excluir — com confirmação via session_state
+        with col_del:
+            confirm_key = f"_confirm_del_{ev_id}"
+            if st.session_state.get(confirm_key):
+                # Já pediu confirmação — mostra ✅ para confirmar de vez
+                if st.button("✅", key=f"ev_del_ok_{ev_id}",
+                              help="Confirmar exclusão"):
+                    # Verifica se é série recorrente
+                    rec_gid = ev.get('recurrence_group_id')
+                    has_rec = rec_gid and not (isinstance(rec_gid, float) and pd.isna(rec_gid))
+                    if has_rec:
+                        # Deixa o formulário decidir — abre com edit_id
+                        st.session_state['_cal_edit_id'] = ev_id
+                        st.session_state.pop(confirm_key, None)
+                        st.rerun()
+                    else:
+                        delete_activity(ev_id)
+                        st.session_state.pop(confirm_key, None)
+                        st.toast("🗑️ Evento excluído.", icon="🗑️")
+                        _reload()
+            else:
+                if st.button("🗑️", key=f"ev_del_{ev_id}",
+                              help="Excluir este evento"):
+                    st.session_state[confirm_key] = True
+                    st.rerun()
+
+        # Aviso de confirmação pendente
+        if st.session_state.get(f"_confirm_del_{ev_id}"):
+            rec_gid = ev.get('recurrence_group_id')
+            has_rec = rec_gid and not (isinstance(rec_gid, float) and pd.isna(rec_gid))
+            if has_rec:
+                st.warning(f"⚠️ **'{title}'** é recorrente. Clique ✅ para abrir as opções de exclusão.", icon="⚠️")
+            else:
+                st.warning(f"⚠️ Confirma exclusão de **'{title}'**? Clique **✅** para confirmar ou recarregue para cancelar.", icon="⚠️")
 
 
 # ─── FORMULÁRIO DE EVENTO ──────────────────────────────────────────────────────
