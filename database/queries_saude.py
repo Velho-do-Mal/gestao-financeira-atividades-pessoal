@@ -78,6 +78,14 @@ def delete_exercise(ex_id: int):
     execute_query("UPDATE exercises SET active=FALSE WHERE id=%s", (ex_id,), fetch=False)
 
 
+def update_exercise_order(ex_id: int, new_order: int):
+    """Atualiza order_index de um exercício."""
+    execute_query(
+        "UPDATE exercises SET order_index=%s WHERE id=%s",
+        (new_order, ex_id), fetch=False,
+    )
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # MUSCULAÇÃO — SÉRIES PLANEJADAS
 # ══════════════════════════════════════════════════════════════════════════════
