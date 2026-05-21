@@ -40,22 +40,17 @@ from utils.responsive import init_responsive
 init_responsive()
 
 # ─── Migração do banco de dados ────────────────────────────────────────
-@st.cache_resource
-def init_database():
-    """Inicializa o banco de dados (executa uma única vez por processo do servidor)."""
+# Usa session_state (não cache_resource) para garantir que novas migrations
+# rodam mesmo quando o cache do servidor ficou com versão anterior do código.
+if 'db_initialized' not in st.session_state:
     try:
-        from database.migrations import run_migrations, run_habits_migrations, run_flow_migrations, run_calendar_migrations
-        run_migrations()
-        run_habits_migrations()
-        run_flow_migrations()
-        run_calendar_migrations()
-        return True
+        from database.migrations import run_all_migrations
+        st.session_state['db_initialized'] = run_all_migrations()
     except Exception as e:
-        st.error(f"❌ Erro ao inicializar banco de dados: {e}")
-        return False
+        logger.error(f"Erro nas migrations: {e}")
+        st.session_state['db_initialized'] = False
 
-
-db_ok = init_database()
+db_ok = st.session_state.get('db_initialized', False)
 
 
 # ─── Flag de notificações no nível do SERVIDOR ──────────────────────────
