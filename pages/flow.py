@@ -305,17 +305,9 @@ def _step_flow_session():
         if c2.button("⏹️ Finalizar", use_container_width=True, key="btn_stop"):
             _finalize_session()
 
-        # Auto-refresh a cada segundo quando rodando
-        stcomp.html("""
-        <script>
-            setTimeout(function() {
-                try {
-                    window.parent.document.querySelector('[data-testid="stApp"]')
-                        .dispatchEvent(new Event('streamlit:rerun'));
-                } catch(e) {}
-            }, 1000);
-        </script>
-        """, height=0)
+        # Atualiza o display a cada 1 segundo (abordagem padrão Streamlit)
+        time.sleep(1)
+        st.rerun()
 
     elif timer_state == 'paused':
         c1, c2 = st.columns(2)

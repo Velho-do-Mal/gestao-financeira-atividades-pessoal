@@ -632,6 +632,26 @@ def _tab_calendario():
     if '_cal_new_date' not in st.session_state: st.session_state['_cal_new_date'] = date.today()
     if '_cal_edit_id'  not in st.session_state: st.session_state['_cal_edit_id']  = None
 
+    # ── Edição/exclusão: mostrada no TOPO antes do calendário ────────────────
+    # Garante que o formulário seja sempre visível (não fica escondido embaixo)
+    inline_edit = st.session_state.get('_inline_edit_ev')
+    del_rec_ev  = st.session_state.get('_del_recurrence_ev')
+
+    if inline_edit or del_rec_ev:
+        if inline_edit:
+            df_all = get_activities()
+            rows = df_all[df_all['id'] == inline_edit] if not df_all.empty else pd.DataFrame()
+            if not rows.empty:
+                st.info("✏️ Formulário de edição aberto — preencha e clique em Salvar.")
+                _inline_edit_form(rows.iloc[0])
+                st.markdown("---")
+            else:
+                st.session_state.pop('_inline_edit_ev', None)
+
+        if del_rec_ev:
+            _form_event()   # trata a exclusão de série
+        return  # não renderiza calendário enquanto editando
+
     view = st.session_state['_cal_view']
     ref  = st.session_state['_cal_ref']
 
