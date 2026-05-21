@@ -91,7 +91,7 @@ with st.sidebar:
 
     page = st.radio(
         "Navegação",
-        ["🏠 Home", "🏠 Finanças", "📋 Atividades", "🔄 Hábitos", "🌊 Flow"],
+        ["🏠 Home", "🏠 Finanças", "📋 Atividades", "🔄 Hábitos", "🌊 Flow", "💪 Saúde"],
         label_visibility="collapsed",
     )
 
@@ -148,4 +148,7 @@ elif page == "🔄 Hábitos":
     render()
 elif page == "🌊 Flow":
     from pages.flow import render
+    render()
+elif page == "💪 Saúde":
+    from pages.saude import render
     render()
