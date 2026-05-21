@@ -13,6 +13,7 @@ import streamlit as st
 import streamlit.components.v1 as stcomp
 import pandas as pd
 import plotly.graph_objects as go
+import time
 import plotly.express as px
 from datetime import date, datetime, timedelta
 

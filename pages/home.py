@@ -18,6 +18,7 @@ from database.queries import (
 )
 from components.charts import cashflow_bar_line, gauge_goal, budget_bar_comparison
 from components.styles import page_header
+from datetime import date as _date
 from utils.helpers import fmt_currency, priority_emoji, fmt_date, card_metric
 from utils.responsive import kpi_row, is_mobile, get_device
 
@@ -116,35 +117,110 @@ def _render_chart():
 
 
 def _render_activities():
-    st.markdown("#### 📋 Atividades de Hoje")
-    df_act = get_today_activities()
-    if df_act.empty:
-        st.markdown("""
-        <div style="text-align:center;padding:32px;color:#64748B">
-            <div style="font-size:36px">✅</div>
-            <p>Nenhuma atividade vencendo hoje!</p>
-        </div>
-        """, unsafe_allow_html=True)
-        return
-    priority_order = {
-        'Urgente-Urgente': 1, 'Importante-Urgente': 2,
-        'Importante não Urgente': 3, 'Não importante-Não urgente': 4,
-    }
-    df_act['_order'] = df_act['priority'].map(priority_order)
-    for _, row in df_act.sort_values('_order').iterrows():
-        emoji  = priority_emoji(row.get('priority', ''))
-        is_sub = row.get('parent_id') is not None
-        indent = "margin-left:14px;border-left:3px solid #3B82F6;padding-left:10px;" if is_sub else ""
-        st.markdown(f"""
-        <div style="background:#1E293B;border-radius:8px;padding:10px 14px;
-                    margin-bottom:8px;{indent}border:1px solid #334155">
-            <div style="display:flex;justify-content:space-between;align-items:center">
-                <span style="font-weight:500;color:#E2E8F0">{emoji} {row['title']}</span>
-                <span style="font-size:11px;color:#64748B">{row.get('status','')}</span>
-            </div>
-            <div style="font-size:11px;color:#94A3B8;margin-top:4px">{row.get('priority','')}</div>
-        </div>
-        """, unsafe_allow_html=True)
+    # ── Grid: Atividades · Hábitos · Treino ─────────────────────────────────
+    col_act, col_hab, col_gym = st.columns(3)
+
+    # ── Atividades de Hoje ────────────────────────────────────────────────────
+    with col_act:
+        st.markdown("#### 📋 Atividades de Hoje")
+        df_act = get_today_activities()
+        if df_act.empty:
+            st.markdown('<div style="text-align:center;padding:20px;color:#64748B">'
+                        '<div style="font-size:28px">✅</div><p style="font-size:13px">'
+                        'Nenhuma atividade hoje!</p></div>', unsafe_allow_html=True)
+        else:
+            priority_order = {
+                'Urgente-Urgente': 1, 'Importante-Urgente': 2,
+                'Importante não Urgente': 3, 'Não importante-Não urgente': 4,
+            }
+            df_act['_order'] = df_act['priority'].map(priority_order)
+            for _, row in df_act.sort_values('_order').head(8).iterrows():
+                emoji  = priority_emoji(row.get('priority', ''))
+                status = row.get('status', '')
+                done   = status == 'Concluído'
+                st.markdown(
+                    f'<div style="background:#1E293B;border-radius:8px;padding:8px 12px;'
+                    f'margin-bottom:6px;border:1px solid #334155;'
+                    f'opacity:{0.5 if done else 1}">'                    f'<div style="color:#E2E8F0;font-size:13px;font-weight:500">'
+                    f'{"✅" if done else emoji} {row["title"]}</div>'                    f'<div style="color:#64748B;font-size:11px">{row.get("priority","")}</div>'                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+
+    # ── Hábitos de Hoje ───────────────────────────────────────────────────────
+    with col_hab:
+        st.markdown("#### 🔄 Hábitos de Hoje")
+        try:
+            from database.queries_habitos import get_today_habits, _is_scheduled
+            df_hab = get_today_habits()
+            today_h = _date.today()
+            hab_today = []
+            if not df_hab.empty:
+                for _, hr in df_hab.iterrows():
+                    if _is_scheduled(today_h, hr.get('frequency_type','Diário'),
+                                     hr.get('frequency_days','')):
+                        hab_today.append(hr)
+            if not hab_today:
+                st.markdown('<div style="text-align:center;padding:20px;color:#64748B">'
+                            '<div style="font-size:28px">🎯</div><p style="font-size:13px">'
+                            'Nenhum hábito hoje!</p></div>', unsafe_allow_html=True)
+            else:
+                for hr in hab_today[:8]:
+                    done_h = bool(hr.get('done_today', False))
+                    color  = hr.get('color', '#3B82F6')
+                    icon   = hr.get('icon', '🎯')
+                    st.markdown(
+                        f'<div style="background:#1E293B;border-radius:8px;padding:8px 12px;'
+                        f'margin-bottom:6px;border-left:3px solid {color};'
+                        f'border:1px solid #334155;opacity:{0.5 if done_h else 1}">'                        f'<span style="font-size:16px">{icon}</span> '                        f'<span style="color:#E2E8F0;font-size:13px">{hr["name"]}</span> '                        f'{"✅" if done_h else ""}'                        f'</div>',
+                        unsafe_allow_html=True,
+                    )
+        except Exception:
+            st.info("Configure hábitos na aba Hábitos.")
+
+    # ── Treino de Hoje ────────────────────────────────────────────────────────
+    with col_gym:
+        st.markdown("#### 🏋️ Treino de Hoje")
+        try:
+            from database.queries_saude import get_divisions, get_exercises
+            DAYS_PT = ['Segunda','Terça','Quarta','Quinta','Sexta','Sábado','Domingo']
+            today_name = DAYS_PT[_date.today().weekday()]
+            df_divs = get_divisions()
+            treino_hoje = None
+            if not df_divs.empty:
+                # Primeiro tenta match exato, depois match parcial
+                for _, div in df_divs.iterrows():
+                    dow = str(div.get('day_of_week') or '')
+                    if today_name in dow:
+                        treino_hoje = div
+                        break
+                if treino_hoje is None:
+                    # Pega o primeiro com "Livre" ou qualquer um
+                    free = df_divs[df_divs['day_of_week'].isna() |
+                                   df_divs['day_of_week'].str.contains('Livre', na=False)]
+                    if not free.empty:
+                        treino_hoje = free.iloc[0]
+            if treino_hoje is None:
+                st.markdown('<div style="text-align:center;padding:20px;color:#64748B">'
+                            '<div style="font-size:28px">💪</div><p style="font-size:13px">'
+                            'Sem treino cadastrado para hoje.</p></div>', unsafe_allow_html=True)
+            else:
+                muscles = str(treino_hoje.get('muscle_groups') or '')
+                st.markdown(
+                    f'<div style="background:#1E293B;border-radius:8px;padding:10px 14px;'
+                    f'margin-bottom:8px;border-left:4px solid #10B981;">'                    f'<b style="color:#6EE7B7">{treino_hoje["name"]}</b>'                    f'<div style="color:#64748B;font-size:11px">{muscles}</div></div>',
+                    unsafe_allow_html=True,
+                )
+                df_ex = get_exercises(int(treino_hoje['id']))
+                if not df_ex.empty:
+                    for _, ex in df_ex.head(8).iterrows():
+                        equip = f' · {ex["equipment"]}' if ex.get('equipment') else ''
+                        st.markdown(
+                            f'<div style="color:#94A3B8;font-size:12px;padding:3px 0 3px 12px;'
+                            f'border-left:2px solid #334155">• {ex["name"]}{equip}</div>',
+                            unsafe_allow_html=True,
+                        )
+        except Exception:
+            st.info("Configure treinos na aba Saúde.")
 
 
 def _render_budget_table(df_bva):
