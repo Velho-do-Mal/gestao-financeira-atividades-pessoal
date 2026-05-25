@@ -182,29 +182,87 @@ def pie_by_category(df: pd.DataFrame, title: str = "Gastos por Categoria") -> go
 
 
 def budget_bar_comparison(df: pd.DataFrame) -> go.Figure:
-    """Barras comparando orçado x realizado por categoria."""
+    """
+    Gráfico de orçamento com sinal:
+      - Categorias Entrada → valores positivos (acima do eixo X)
+      - Categorias Saída   → valores negativos (abaixo do eixo X)
+      - Valores exibidos sobre cada barra
+      - Barra extra "Resultado" = total Entradas - total Saídas
+    """
+    import numpy as np
     if df.empty:
         return _empty_figure("Sem dados de orçamento")
 
+    df = df.copy()
+
+    # Aplica sinal conforme flow_type
+    sign = df['flow_type'].apply(lambda t: 1 if t == 'Entrada' else -1)
+    df['planned_signed'] = df['planned'] * sign
+    df['actual_signed']  = df['actual']  * sign
+
+    # Resultado (linha extra no final)
+    total_entrada_p = df.loc[df['flow_type']=='Entrada', 'planned'].sum()
+    total_saida_p   = df.loc[df['flow_type']=='Saída',   'planned'].sum()
+    total_entrada_a = df.loc[df['flow_type']=='Entrada', 'actual'].sum()
+    total_saida_a   = df.loc[df['flow_type']=='Saída',   'actual'].sum()
+    result_p = total_entrada_p - total_saida_p
+    result_a = total_entrada_a - total_saida_a
+
+    cats      = list(df['category']) + ['💰 Resultado']
+    planned_y = list(df['planned_signed']) + [result_p]
+    actual_y  = list(df['actual_signed'])  + [result_a]
+
+    # Cores dinâmicas por valor (positivo=verde, negativo=vermelho para resultado)
+    def bar_color(vals, base_color, neg_color="#EF4444"):
+        return [base_color if v >= 0 else neg_color for v in vals]
+
     fig = go.Figure()
+
+    # Barra Orçado
     fig.add_trace(go.Bar(
         name="Orçado",
-        x=df['category'],
-        y=df['planned'],
-        marker_color=CHART_COLORS["planned"],
-        hovertemplate="<b>%{x}</b><br>Orçado: R$ %{y:,.2f}<extra></extra>",
+        x=cats,
+        y=planned_y,
+        marker_color=bar_color(planned_y, CHART_COLORS["planned"]),
+        text=[f"R$ {abs(v):,.0f}" for v in planned_y],
+        textposition="outside",
+        textfont=dict(size=10, color="#94A3B8"),
+        hovertemplate="<b>%{x}</b><br>Orçado: R$ %{customdata:,.2f}<extra></extra>",
+        customdata=[abs(v) for v in planned_y],
     ))
+
+    # Barra Realizado
     fig.add_trace(go.Bar(
         name="Realizado",
-        x=df['category'],
-        y=df['actual'],
-        marker_color=CHART_COLORS["actual"],
-        hovertemplate="<b>%{x}</b><br>Realizado: R$ %{y:,.2f}<extra></extra>",
+        x=cats,
+        y=actual_y,
+        marker_color=bar_color(actual_y, CHART_COLORS["actual"]),
+        text=[f"R$ {abs(v):,.0f}" for v in actual_y],
+        textposition="outside",
+        textfont=dict(size=10, color="#F1F5F9"),
+        hovertemplate="<b>%{x}</b><br>Realizado: R$ %{customdata:,.2f}<extra></extra>",
+        customdata=[abs(v) for v in actual_y],
     ))
+
+    # Linha do zero
+    fig.add_hline(y=0, line_color="#475569", line_width=1)
+
     fig.update_layout(**_base_layout(
-        title=dict(text="Orçado vs Realizado por Categoria", font=dict(size=15, color="#93C5FD")),
+        title=dict(
+            text="Orçado vs Realizado — Entradas (+) · Saídas (−) · Resultado",
+            font=dict(size=14, color="#93C5FD"),
+        ),
         barmode="group",
+        yaxis=dict(
+            tickformat="R$ ,.0f",
+            tickprefix="R$ ",
+            zeroline=True,
+            zerolinecolor="#475569",
+            zerolinewidth=1,
+        ),
     ))
+    # Aumenta height para caber os valores acima das barras
+    fig.update_layout(height=420, uniformtext_minsize=8, uniformtext_mode='hide')
     return fig
 
 
