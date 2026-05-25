@@ -225,11 +225,45 @@ def _render_activities():
 
 def _render_budget_table(df_bva):
     df = df_bva.copy()
-    df['Diferença'] = df['planned'] - df['actual']
-    df['Status']    = df['Diferença'].apply(lambda x: "✅ Ok" if x >= 0 else "❌ Excedeu")
+
+    # Sinal: Entrada positivo, Saída negativo
+    df['Diferença'] = (df['planned'] - df['actual']) * df['flow_type'].apply(
+        lambda t: 1 if t == 'Entrada' else -1
+    )
+    df['Tipo']   = df['flow_type'].apply(lambda t: "📈 Entrada" if t == 'Entrada' else "📉 Saída")
+    df['Status'] = df['Diferença'].apply(lambda x: "✅ Ok" if x >= 0 else "❌ Excedeu")
+
+    # Linha de resultado
+    entrada_p = df.loc[df['flow_type']=='Entrada','planned'].sum()
+    saida_p   = df.loc[df['flow_type']=='Saída',  'planned'].sum()
+    entrada_a = df.loc[df['flow_type']=='Entrada','actual'].sum()
+    saida_a   = df.loc[df['flow_type']=='Saída',  'actual'].sum()
+    resultado = entrada_a - saida_a
+    resultado_p = entrada_p - saida_p
+
+    df_show = df[['Tipo','category','planned','actual','Diferença','Status']].rename(columns={
+        'category': 'Categoria', 'planned': 'Orçado (R$)', 'actual': 'Realizado (R$)',
+        'Diferença': 'Diferença (R$)',
+    })
+
+    # Linha total
+    total_row = pd.DataFrame([{
+        'Tipo': '💰 RESULTADO',
+        'Categoria': '— Entradas − Saídas —',
+        'Orçado (R$)': resultado_p,
+        'Realizado (R$)': resultado,
+        'Diferença (R$)': resultado - resultado_p,
+        'Status': "✅ Positivo" if resultado >= 0 else "❌ Negativo",
+    }])
+    df_show = pd.concat([df_show, total_row], ignore_index=True)
+
     st.dataframe(
-        df[['category', 'planned', 'actual', 'Diferença', 'Status']].rename(columns={
-            'category': 'Categoria', 'planned': 'Orçado', 'actual': 'Realizado',
-        }).style.format({'Orçado': 'R$ {:,.2f}', 'Realizado': 'R$ {:,.2f}', 'Diferença': 'R$ {:,.2f}'}),
-        hide_index=True, use_container_width=True,
+        df_show.style.format({
+            'Orçado (R$)':    'R$ {:,.2f}',
+            'Realizado (R$)': 'R$ {:,.2f}',
+            'Diferença (R$)': 'R$ {:,.2f}',
+        }),
+        hide_index=True,
+        use_container_width=True,
+        height=min(600, 40 + len(df_show) * 38),
     )
