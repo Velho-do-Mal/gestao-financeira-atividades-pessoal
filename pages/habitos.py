@@ -48,14 +48,16 @@ def _reload():
     st.rerun()
 
 
-def _freq_days_label(freq_days: str) -> str:
-    """Converte '0,1,2,3,4' em 'Seg-Sex'."""
+def _freq_days_label(freq_days) -> str:
+    """Converte '0,1,2,3,4' em 'Seg, Ter, Qua...'. Sempre retorna string."""
     map_d = {0:'Seg',1:'Ter',2:'Qua',3:'Qui',4:'Sex',5:'Sáb',6:'Dom'}
     try:
-        days = [int(x) for x in freq_days.split(',') if x.strip()]
-        return ', '.join(map_d.get(d, str(d)) for d in sorted(days))
+        days = [int(x) for x in str(freq_days).split(',') if x.strip()]
+        if days:
+            return ', '.join(map_d.get(d, str(d)) for d in sorted(days))
     except Exception:
-        return freq_days or 'Configurado' 
+        pass
+    return str(freq_days) if freq_days else 'Configurado'  
 
 
 # ══════════════════════════════════════════════════════════════════════════════
