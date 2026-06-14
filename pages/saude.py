@@ -143,15 +143,57 @@ def _manage_divisions():
                 else: st.error("Nome obrigatório.")
 
         if not df_divs.empty:
+            editing_div = st.session_state.get('_edit_div_id')
             for _, div in df_divs.iterrows():
-                cc1, cc2 = st.columns([4, 1])
-                day_info = f" ({div['day_of_week']})" if div.get('day_of_week') else ""
-                cc1.markdown(f"**{div['name']}**{day_info}")
-                cc1.caption(div.get('muscle_groups', '') or '')
-                if cc2.button("🗑️", key=f"del_div_{div['id']}", help="Excluir"):
-                    delete_division(int(div['id']))
-                    st.toast("🗑️ Divisão excluída.", icon="🗑️")
-                    _reload()
+                div_id = int(div['id'])
+
+                if editing_div == div_id:
+                    # ── Formulário de edição inline ──────────────────────────
+                    st.markdown(f"**✏️ Editando: {div['name']}**")
+                    ek = f"edt_div_{div_id}"
+                    e_name = st.text_input("Nome*", value=div['name'], key=f"{ek}_name")
+
+                    cur_day = div.get('day_of_week') or "—"
+                    day_idx = (["—"] + DAYS).index(cur_day) if cur_day in (["—"] + DAYS) else 0
+                    e_day   = st.selectbox("Dia", ["—"] + DAYS, index=day_idx, key=f"{ek}_day")
+
+                    cur_muscles = [m.strip() for m in str(div.get('muscle_groups') or '').split(',') if m.strip()]
+                    cur_muscles = [m for m in cur_muscles if m in MUSCLE_GROUPS]
+                    e_muscles = st.multiselect("Grupos Musculares", MUSCLE_GROUPS,
+                                                default=cur_muscles, key=f"{ek}_musc")
+
+                    ec1, ec2 = st.columns(2)
+                    if ec1.button("💾 Salvar", key=f"{ek}_save", type="primary", use_container_width=True):
+                        if e_name.strip():
+                            upsert_division(dict(
+                                id=div_id,
+                                name=e_name.strip(),
+                                day_of_week=e_day if e_day != "—" else None,
+                                muscle_groups=", ".join(e_muscles) if e_muscles else None,
+                            ))
+                            st.session_state.pop('_edit_div_id', None)
+                            st.toast("✅ Divisão atualizada!", icon="✅")
+                            _reload()
+                        else:
+                            st.error("Nome obrigatório.")
+                    if ec2.button("❌ Cancelar", key=f"{ek}_cancel", use_container_width=True):
+                        st.session_state.pop('_edit_div_id', None)
+                        st.rerun()
+                    st.markdown("---")
+
+                else:
+                    # ── Visualização normal ───────────────────────────────────
+                    cc1, cc2, cc3 = st.columns([4, 1, 1])
+                    day_info = f" ({div['day_of_week']})" if div.get('day_of_week') else ""
+                    cc1.markdown(f"**{div['name']}**{day_info}")
+                    cc1.caption(div.get('muscle_groups', '') or '')
+                    if cc2.button("✏️", key=f"edit_div_{div_id}", help="Editar"):
+                        st.session_state['_edit_div_id'] = div_id
+                        st.rerun()
+                    if cc3.button("🗑️", key=f"del_div_{div_id}", help="Excluir"):
+                        delete_division(div_id)
+                        st.toast("🗑️ Divisão excluída.", icon="🗑️")
+                        _reload()
 
     with right:
         st.markdown("#### Exercícios por Divisão")
