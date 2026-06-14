@@ -442,12 +442,23 @@ def _tab_calendario():
                     is_past   = day < today
                     is_future = day > today
 
+                    # Badge "HOJE" — texto preto sobre fundo amarelo, sempre visível
+                    if is_today:
+                        st.markdown(
+                            '<div style="background:#FBBF24;color:#000000;font-size:9px;'
+                            'font-weight:800;text-align:center;border-radius:4px 4px 0 0;'
+                            'padding:1px 0;letter-spacing:1px">HOJE</div>',
+                            unsafe_allow_html=True,
+                        )
+
                     if not scheduled:
                         # Dia não programado — mostra mas não clicável
+                        day_color = "#000000" if is_today else "#334155"
+                        day_bg    = "#FEF3C7" if is_today else "#0F172A"
                         st.markdown(f"""
-                        <div style="background:#0F172A;border-radius:6px;height:40px;
+                        <div style="background:{day_bg};border-radius:0 0 6px 6px;height:40px;
                                     display:flex;align-items:center;justify-content:center;
-                                    font-size:12px;color:#334155">{day.day}</div>
+                                    font-size:12px;color:{day_color};font-weight:700">{day.day}</div>
                         """, unsafe_allow_html=True)
                         continue
 
@@ -456,8 +467,8 @@ def _tab_calendario():
                         btn_style = f"background-color:{color};color:white;border:none"
                         label = f"✓ {day.day}"
                     elif is_today:
-                        btn_style = "background-color:#1E3A5F;color:#60A5FA;border:2px solid #3B82F6"
-                        label = f"📍{day.day}"
+                        btn_style = "background-color:#FBBF24;color:#000000;border:2px solid #F59E0B"
+                        label = f"📍 {day.day}"
                     elif is_past:
                         btn_style = "background-color:#7F1D1D;color:#FCA5A5;border:none"
                         label = f"✗ {day.day}"
@@ -465,7 +476,15 @@ def _tab_calendario():
                         btn_style = "background-color:#1E293B;color:#64748B;border:1px solid #334155"
                         label = str(day.day)
 
-                    if st.button(label, key=f"cal_{cycle_id}_{day}",
+                    # Aplica o estilo do botão via CSS escopado pela key (Streamlit ≥1.35)
+                    btn_key = f"cal_{cycle_id}_{day}"
+                    st.markdown(
+                        f'<style>.st-key-{btn_key} button {{'
+                        f'{btn_style} !important; font-weight:700 !important}}</style>',
+                        unsafe_allow_html=True,
+                    )
+
+                    if st.button(label, key=btn_key,
                                  help=f"{'Desmarcar' if done else 'Marcar'} {day.strftime('%d/%m')}",
                                  use_container_width=True):
                         toggle_check(cycle_id, day)
