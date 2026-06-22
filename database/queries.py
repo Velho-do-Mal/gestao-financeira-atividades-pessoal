@@ -345,22 +345,36 @@ def insert_transaction(data: dict, recurrence_months: int = 0):
             ))
 
 
+def _safe_date(v):
+    """Converte valor para date ou None — trata NaT, string vazia, None."""
+    if v is None: return None
+    try:
+        import pandas as _pd
+        if _pd.isnull(v): return None
+    except Exception: pass
+    if str(v).strip() in ('', 'None', 'NaT', 'nat'): return None
+    return v
+
+
 def update_transaction(transaction_id: int, data: dict):
     """
     Atualiza movimentação.
-    CORREÇÃO: seta is_forecast=False automaticamente quando status='Pago'.
+    FIX: suporta bank_id + datas seguras (None/NaT nunca chegam ao banco como string).
     """
     is_forecast = False if data.get('status') == 'Pago' else data.get('is_forecast', True)
     execute_query("""
         UPDATE transactions
-        SET flow_type=%s, category_id=%s, subcategory_id=%s,
+        SET flow_type=%s, category_id=%s, subcategory_id=%s, bank_id=%s,
             value=%s, interest=%s, due_date=%s, status=%s, payment_date=%s,
             description=%s, is_forecast=%s, updated_at=NOW()
         WHERE id=%s
     """, (
         data['flow_type'], data.get('category_id'), data.get('subcategory_id'),
-        data.get('value', 0), data.get('interest', 0), data['due_date'],
-        data.get('status', 'Não pago'), data.get('payment_date'),
+        data.get('bank_id'),
+        data.get('value', 0), data.get('interest', 0),
+        _safe_date(data.get('due_date')),
+        data.get('status', 'Não pago'),
+        _safe_date(data.get('payment_date')),
         data.get('description'), is_forecast, transaction_id,
     ), fetch=False)
 
