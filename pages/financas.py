@@ -486,22 +486,37 @@ def _grid_lancamentos():
         return
 
     _info_edit()
-    df_cats  = get_categories()
-    cat_names = ["—"] + df_cats['name'].tolist() if not df_cats.empty else ["—"]
+    df_cats    = get_categories()
+    df_subs    = get_all_subcategories()
+    df_banks   = get_banks()
 
-    cols = ['id', 'flow_type', 'category_name', 'subcategory_name',
+    cat_names  = ["—"] + df_cats['name'].tolist()  if not df_cats.empty  else ["—"]
+    sub_names  = ["—"] + df_subs['name'].tolist()   if not df_subs.empty  else ["—"]
+    bank_names = ["—"] + df_banks['name'].tolist()  if not df_banks.empty else ["—"]
+
+    # Mapa nome→id para lookup no save
+    cat_id_map  = dict(zip(df_cats['name'],  df_cats['id']))  if not df_cats.empty  else {}
+    sub_id_map  = dict(zip(df_subs['name'],  df_subs['id']))  if not df_subs.empty  else {}
+    bank_id_map = dict(zip(df_banks['name'], df_banks['id'])) if not df_banks.empty else {}
+
+    # FIX 2: inclui bank_name nas colunas do editor
+    cols = ['id', 'flow_type', 'category_name', 'subcategory_name', 'bank_name',
             'description', 'value', 'interest', 'total_value',
             'due_date', 'payment_date', 'status']
     existing = [c for c in cols if c in df.columns]
     df_edit  = df[existing].copy()
-    df_edit['due_date']     = pd.to_datetime(df_edit['due_date']).dt.date
+    df_edit['due_date']     = pd.to_datetime(df_edit['due_date'], errors='coerce').dt.date
     df_edit['payment_date'] = pd.to_datetime(df_edit['payment_date'], errors='coerce').dt.date
+    if 'bank_name' not in df_edit.columns:
+        df_edit['bank_name'] = "—"
+    df_edit['bank_name'] = df_edit['bank_name'].fillna("—")
     df_edit.insert(0, 'Excluir', False)
     df_edit = df_edit.rename(columns={
         'flow_type': 'Tipo', 'category_name': 'Categoria',
-        'subcategory_name': 'Subcategoria', 'description': 'Descrição',
-        'value': 'Valor', 'interest': 'Juros', 'total_value': 'Total',
-        'due_date': 'Vencimento', 'payment_date': 'Dt. Pagamento', 'status': 'Status',
+        'subcategory_name': 'Subcategoria', 'bank_name': 'Banco',
+        'description': 'Descrição', 'value': 'Valor', 'interest': 'Juros',
+        'total_value': 'Total', 'due_date': 'Vencimento',
+        'payment_date': 'Dt. Pagamento', 'status': 'Status',
     })
 
     edited = st.data_editor(
@@ -511,7 +526,10 @@ def _grid_lancamentos():
             "Excluir":       st.column_config.CheckboxColumn("🗑️", width="small"),
             "Tipo":          st.column_config.SelectboxColumn("Tipo", options=["Entrada", "Saída"]),
             "Categoria":     st.column_config.SelectboxColumn("Categoria", options=cat_names),
-            "Subcategoria":  st.column_config.TextColumn("Subcategoria"),
+            # FIX 1: Subcategoria como SelectboxColumn com todas as subcategorias
+            "Subcategoria":  st.column_config.SelectboxColumn("Subcategoria", options=sub_names),
+            # FIX 2: Banco editável via SelectboxColumn
+            "Banco":         st.column_config.SelectboxColumn("Banco/Conta", options=bank_names),
             "Descrição":     st.column_config.TextColumn("Descrição"),
             "Valor":         st.column_config.NumberColumn("Valor",  format="R$ %.2f"),
             "Juros":         st.column_config.NumberColumn("Juros",  format="R$ %.2f"),
@@ -526,16 +544,32 @@ def _grid_lancamentos():
         for _, row in edited[edited['Excluir'] == True].iterrows():
             delete_transaction(int(row['id']))
 
-        df_cats_full = get_categories()
-        cat_id_map   = dict(zip(df_cats_full['name'], df_cats_full['id'])) if not df_cats_full.empty else {}
-
         for _, row in edited[edited['Excluir'] == False].iterrows():
-            cat_id = cat_id_map.get(row.get('Categoria'))
+            cat_id  = cat_id_map.get(str(row.get('Categoria') or ''))
+            sub_id  = sub_id_map.get(str(row.get('Subcategoria') or ''))  if row.get('Subcategoria') and row.get('Subcategoria') != '—' else None
+            bank_id = bank_id_map.get(str(row.get('Banco') or '')) if row.get('Banco') and row.get('Banco') != '—' else None
+
+            # FIX 3: converte datas com segurança — None/NaT/string vazia → None
+            def _safe_dt(v):
+                if v is None: return None
+                try:
+                    import pandas as _pd
+                    if _pd.isnull(v): return None
+                except Exception: pass
+                if str(v).strip() in ('', 'None', 'NaT'): return None
+                return v
+
             update_transaction(int(row['id']), dict(
-                flow_type=row['Tipo'], category_id=cat_id, subcategory_id=None,
-                value=float(row.get('Valor', 0)), interest=float(row.get('Juros', 0)),
-                due_date=row['Vencimento'], status=row['Status'],
-                payment_date=row.get('Dt. Pagamento'), description=row.get('Descrição'),
+                flow_type   = row['Tipo'],
+                category_id = cat_id,
+                subcategory_id = sub_id,
+                bank_id     = bank_id,
+                value       = float(row.get('Valor') or 0),
+                interest    = float(row.get('Juros') or 0),
+                due_date    = _safe_dt(row.get('Vencimento')),
+                status      = row.get('Status', 'Não pago'),
+                payment_date= _safe_dt(row.get('Dt. Pagamento')),
+                description = row.get('Descrição'),
             ))
         st.success("✅ Lançamentos salvos!")
         _save_and_reload()
