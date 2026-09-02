@@ -11,22 +11,22 @@
 <div class="section grid grid-4">
   <div class="card metric card--danger">
     <span class="metric__label">🚨 Contas em atraso</span>
-    <span class="metric__value">{{ summary.overdue|brl }}</span>
+    <span class="metric__value">{{ money(summary.overdue) }}</span>
     <span class="metric__delta">Vencidas e não pagas</span>
   </div>
   <div class="card metric card--warning">
     <span class="metric__label">⏳ Vencem em 3 dias</span>
-    <span class="metric__value">{{ summary.due_soon|brl }}</span>
+    <span class="metric__value">{{ money(summary.due_soon) }}</span>
     <span class="metric__delta">Atenção ao prazo</span>
   </div>
   <div class="card metric card--success">
     <span class="metric__label">📥 Contas a receber</span>
-    <span class="metric__value">{{ summary.receivable|brl }}</span>
+    <span class="metric__value">{{ money(summary.receivable) }}</span>
     <span class="metric__delta">Entradas pendentes</span>
   </div>
   <div class="card metric card--accent">
     <span class="metric__label">💰 Saldo do dia</span>
-    <span class="metric__value">{{ summary.balance_today|brl }}</span>
+    <span class="metric__value">{{ money(summary.balance_today) }}</span>
     <span class="metric__delta">Entradas − saídas hoje</span>
   </div>
 </div>
@@ -142,9 +142,9 @@
       <tr>
         <td data-label="Tipo">{{ '📈 Entrada' if r.flow_type=='Entrada' else '📉 Saída' }}</td>
         <td data-label="Categoria">{{ r.category }}</td>
-        <td data-label="Orçado">{{ r.planned|brl }}</td>
-        <td data-label="Realizado">{{ r.actual|brl }}</td>
-        <td data-label="Diferença">{{ r.diff|brl }}</td>
+        <td data-label="Orçado">{{ money(r.planned) }}</td>
+        <td data-label="Realizado">{{ money(r.actual) }}</td>
+        <td data-label="Diferença">{{ money(r.diff) }}</td>
         <td data-label="Status">
           <span class="badge {{ 'badge-success' if r.ok else 'badge-danger' }}">{{ '✅ Dentro do esperado' if r.ok else '⚠️ Fora do esperado' }}</span>
         </td>

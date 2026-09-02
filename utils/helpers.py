@@ -15,11 +15,46 @@ except Exception:
 
 
 def fmt_currency(value: float) -> str:
-    """Formata valor em Real Brasileiro."""
+    """
+    Formata valor em Real Brasileiro. Negativo vem com o sinal de menos
+    NA FRENTE de tudo (-R$ 1.234,56), não entre o "R$" e o número.
+    """
     try:
-        return f"R$ {value:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        value = float(value or 0)
+    except (TypeError, ValueError):
+        value = 0.0
+    sign = "-" if value < 0 else ""
+    try:
+        body = f"{abs(value):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        return f"{sign}R$ {body}"
     except Exception:
-        return f"R$ {value:.2f}"
+        return f"{sign}R$ {abs(value):.2f}"
+
+
+def money_html(value, bold: bool = False, highlight_positive: bool = False):
+    """
+    Retorna o valor formatado em R$ dentro de um <span>, já com a classe
+    CSS que pinta de vermelho quando negativo (usar em todos os quadros/
+    tabelas em vez de aplicar cor "na mão" em cada template).
+    Uso no Jinja: {{ money(valor) }}  (registrado como global, não filtro,
+    porque devolve HTML).
+    highlight_positive=True também pinta de verde quando >= 0 — usar só
+    em KPIs de resultado/saldo onde isso já era o padrão visual.
+    """
+    from markupsafe import Markup, escape
+    try:
+        v = float(value or 0)
+    except (TypeError, ValueError):
+        v = 0.0
+    if v < 0:
+        css_class = "money money--neg"
+    elif highlight_positive:
+        css_class = "money money--pos"
+    else:
+        css_class = "money"
+    if bold:
+        css_class += " money--bold"
+    return Markup(f'<span class="{css_class}">{escape(fmt_currency(v))}</span>')
 
 
 def fmt_date(d) -> str:

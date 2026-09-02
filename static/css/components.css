@@ -44,6 +44,21 @@
 }
 .metric__delta { font-size: 12px; color: var(--text-faint); }
 
+/* ─── Valores monetários (R$) — usar via {{ money(valor) }} no Jinja ── */
+.money {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.money--neg {
+  color: var(--danger-soft);
+  font-weight: 600;
+}
+.money--pos {
+  color: var(--success-soft);
+  font-weight: 600;
+}
+.money--bold { font-weight: 700; }
+
 /* ─── Botões ──────────────────────────────────────────────────────── */
 .btn {
   display: inline-flex;

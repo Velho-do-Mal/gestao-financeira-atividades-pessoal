@@ -13,10 +13,10 @@
 
 {% if has_data %}
 <div class="section grid grid-4">
-  <div class="card metric card--success"><span class="metric__label">📥 Total receitas</span><span class="metric__value">{{ total_in|brl }}</span></div>
-  <div class="card metric card--danger"><span class="metric__label">📤 Total despesas</span><span class="metric__value">{{ total_out|brl }}</span></div>
-  <div class="card metric {{ 'card--accent' if resultado >= 0 else 'card--danger' }}"><span class="metric__label">💹 Resultado</span><span class="metric__value">{{ resultado|brl }}</span></div>
-  <div class="card metric card--warning"><span class="metric__label">⚠️ Inadimplência</span><span class="metric__value">{{ inadimplencia|brl }}</span></div>
+  <div class="card metric card--success"><span class="metric__label">📥 Total receitas</span><span class="metric__value">{{ money(total_in) }}</span></div>
+  <div class="card metric card--danger"><span class="metric__label">📤 Total despesas</span><span class="metric__value">{{ money(total_out) }}</span></div>
+  <div class="card metric {{ 'card--accent' if resultado >= 0 else 'card--danger' }}"><span class="metric__label">💹 Resultado</span><span class="metric__value">{{ money(resultado) }}</span></div>
+  <div class="card metric card--warning"><span class="metric__label">⚠️ Inadimplência</span><span class="metric__value">{{ money(inadimplencia) }}</span></div>
 </div>
 
 <div class="section card">

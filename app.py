@@ -45,9 +45,13 @@ def create_app():
     db_ok = _ensure_db()
     app.config["DB_OK"] = db_ok
 
-    from utils.helpers import fmt_currency, fmt_date
+    from utils.helpers import fmt_currency, fmt_date, money_html
     app.jinja_env.filters["brl"] = fmt_currency
     app.jinja_env.filters["brdate"] = fmt_date
+    # "money" é global (não filtro) porque devolve HTML com a máscara R$
+    # e a classe CSS que pinta negativo de vermelho — usar em todos os
+    # quadros/tabelas em vez de {{ valor|brl }} + cor manual no template.
+    app.jinja_env.globals["money"] = money_html
 
     @app.context_processor
     def inject_globals():

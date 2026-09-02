@@ -229,12 +229,12 @@
 <div class="section grid grid-2">
   <div class="card metric card--accent">
     <span class="metric__label">🏦 Saldo inicial total</span>
-    <span class="metric__value">{{ total_initial|brl }}</span>
+    <span class="metric__value">{{ money(total_initial) }}</span>
   </div>
   <div class="card metric {{ 'card--success' if total_current >= total_initial else 'card--danger' }}">
     <span class="metric__label">💰 Saldo atual total</span>
-    <span class="metric__value">{{ total_current|brl }}</span>
-    <span class="metric__delta">Movimentação: {{ (total_current - total_initial)|brl }}</span>
+    <span class="metric__value">{{ money(total_current) }}</span>
+    <span class="metric__delta">Movimentação: {{ money(total_current - total_initial) }}</span>
   </div>
 </div>
 
@@ -254,8 +254,8 @@
           <td data-label="Banco">{{ b.name }}</td>
           <td data-label="Conta">{{ b.account or '—' }}</td>
           <td data-label="Agência">{{ b.agency or '—' }}</td>
-          <td data-label="Saldo inicial">{{ b.initial_balance|brl }}</td>
-          <td data-label="Saldo atual">{{ b.current_balance|brl }}</td>
+          <td data-label="Saldo inicial">{{ money(b.initial_balance) }}</td>
+          <td data-label="Saldo atual">{{ money(b.current_balance) }}</td>
           <td data-label="">
             <button class="btn btn-secondary btn-sm" onclick="openModal('modal-banco-{{ b.id }}')">✏️</button>
             <form method="post" action="{{ url_for('financas.delete_bank_route', bank_id=b.id) }}" style="display:inline;" onsubmit="return confirm('Excluir banco?');">
