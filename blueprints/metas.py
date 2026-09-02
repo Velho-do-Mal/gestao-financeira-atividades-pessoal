@@ -12,14 +12,16 @@ Módulo Metas — SMART, separado de Finanças. Cada meta tem:
 
 from datetime import datetime
 
-from flask import Blueprint, render_template, request, redirect, url_for, flash
+from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
 
 from database.queries_metas import (
     get_goals, get_goal, upsert_goal, delete_goal,
     get_goals_summary,
     get_goal_progress_log, add_goal_progress, delete_goal_progress,
     get_goal_activities, upsert_goal_activity, delete_goal_activity,
+    update_activity_field,
     get_action_plans_for_activity, upsert_action_plan, delete_action_plan,
+    update_action_plan_field,
     activity_is_late,
 )
 
@@ -133,25 +135,32 @@ def delete_progress(log_id):
     return redirect(url_for("metas.detail", goal_id=goal_id))
 
 
-# ─── Plano de ação (atividades/serviços da meta) ─────────────────────────
-@metas_bp.route("/<int:goal_id>/atividade/nova", methods=["POST"])
-def create_activity(goal_id):
-    data = _activity_form_data(request.form)
-    data["goal_id"] = goal_id
-    upsert_goal_activity(data)
-    flash("Atividade adicionada ao plano de ação.", "success")
-    return redirect(url_for("metas.detail", goal_id=goal_id))
+# ─── Plano de ação (atividades/serviços da meta) — tabela editável ───────
+# A tabela em templates/metas/detail.html edita célula a célula (autosave)
+# via /atividade/<id>/campo; "+ Nova linha" cria um rascunho em branco via
+# /<goal_id>/atividade/rapida e recarrega a página.
+
+@metas_bp.route("/<int:goal_id>/atividade/rapida", methods=["POST"])
+def create_activity_quick(goal_id):
+    activity_id = upsert_goal_activity({
+        "title": "Nova atividade",
+        "description": "",
+        "start_date": None,
+        "end_date": None,
+        "status": "Não iniciado",
+        "goal_id": goal_id,
+    })
+    return jsonify({"ok": True, "id": activity_id})
 
 
-@metas_bp.route("/atividade/<int:activity_id>/editar", methods=["POST"])
-def update_activity(activity_id):
-    goal_id = request.form.get("goal_id")
-    data = _activity_form_data(request.form)
-    data["id"] = activity_id
-    data["goal_id"] = goal_id
-    upsert_goal_activity(data)
-    flash("Atividade atualizada.", "success")
-    return redirect(url_for("metas.detail", goal_id=goal_id))
+@metas_bp.route("/atividade/<int:activity_id>/campo", methods=["POST"])
+def update_activity_field_route(activity_id):
+    body = request.get_json(silent=True) or {}
+    try:
+        update_activity_field(activity_id, body.get("field", ""), body.get("value"))
+    except ValueError as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+    return jsonify({"ok": True})
 
 
 @metas_bp.route("/atividade/<int:activity_id>/excluir", methods=["POST"])
@@ -162,25 +171,25 @@ def delete_activity(activity_id):
     return redirect(url_for("metas.detail", goal_id=goal_id))
 
 
-def _activity_form_data(form):
-    return {
-        "title": form.get("title", "").strip(),
-        "description": form.get("description", "").strip(),
-        "start_date": _parse_date(form.get("start_date")),
-        "end_date": _parse_date(form.get("end_date")),
-        "status": form.get("status", "Não iniciado"),
-    }
+# ─── Plano de ação 5W2H de uma atividade atrasada — tabela editável ──────
+@metas_bp.route("/atividade/<int:activity_id>/plano-acao/rapido", methods=["POST"])
+def create_action_plan_quick(activity_id):
+    plan_id = upsert_action_plan({
+        "activity_id": activity_id,
+        "what": "", "why": "", "who": "", "when_date": None,
+        "where_place": "", "how": "", "how_much": None, "status": "Pendente",
+    })
+    return jsonify({"ok": True, "id": plan_id})
 
 
-# ─── Plano de ação 5W2H de uma atividade atrasada ────────────────────────
-@metas_bp.route("/atividade/<int:activity_id>/plano-acao/novo", methods=["POST"])
-def create_action_plan(activity_id):
-    goal_id = request.form.get("goal_id")
-    data = _action_plan_form_data(request.form)
-    data["activity_id"] = activity_id
-    upsert_action_plan(data)
-    flash("Plano de ação (5W2H) registrado.", "success")
-    return redirect(url_for("metas.detail", goal_id=goal_id))
+@metas_bp.route("/plano-acao/<int:plan_id>/campo", methods=["POST"])
+def update_action_plan_field_route(plan_id):
+    body = request.get_json(silent=True) or {}
+    try:
+        update_action_plan_field(plan_id, body.get("field", ""), body.get("value"))
+    except ValueError as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+    return jsonify({"ok": True})
 
 
 @metas_bp.route("/plano-acao/<int:plan_id>/excluir", methods=["POST"])
@@ -189,16 +198,3 @@ def delete_action_plan_route(plan_id):
     delete_action_plan(plan_id)
     flash("Item do plano de ação removido.", "success")
     return redirect(url_for("metas.detail", goal_id=goal_id))
-
-
-def _action_plan_form_data(form):
-    return {
-        "what": form.get("what", "").strip(),
-        "why": form.get("why", "").strip(),
-        "who": form.get("who", "").strip(),
-        "when_date": _parse_date(form.get("when_date")),
-        "where_place": form.get("where_place", "").strip(),
-        "how": form.get("how", "").strip(),
-        "how_much": form.get("how_much") or None,
-        "status": form.get("status", "Pendente"),
-    }

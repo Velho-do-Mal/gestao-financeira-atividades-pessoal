@@ -82,4 +82,73 @@
   window.toggleMobileMenu = function () {
     document.body.classList.toggle("mobile-menu-open");
   };
+
+  // ─── Tabelas editáveis (estilo planilha) ────────────────────────
+  // Qualquer <input>/<select>/<textarea class="sheet-cell"> com
+  // data-url="/endpoint" e data-field="coluna" salva sozinho ao sair
+  // do campo (change/blur) — sem precisar de botão "Salvar" nem modal.
+  // O backend recebe {field, value} em JSON e deve validar o campo
+  // contra uma lista de colunas permitidas antes de gravar.
+  function _sheetCellValue(el) {
+    if (el.type === "checkbox") return el.checked;
+    return el.value;
+  }
+
+  function _saveSheetCell(el) {
+    const url = el.dataset.url;
+    const field = el.dataset.field;
+    if (!url || !field) return;
+    el.classList.remove("sheet-cell--saved", "sheet-cell--error");
+    el.classList.add("sheet-cell--saving");
+    apiRequest(url, { method: "POST", body: { field: field, value: _sheetCellValue(el) } })
+      .then(function () {
+        el.classList.remove("sheet-cell--saving");
+        el.classList.add("sheet-cell--saved");
+        setTimeout(function () { el.classList.remove("sheet-cell--saved"); }, 1200);
+      })
+      .catch(function (err) {
+        el.classList.remove("sheet-cell--saving");
+        el.classList.add("sheet-cell--error");
+        toast(err.message || "Erro ao salvar", "error");
+      });
+  }
+
+  document.addEventListener("change", function (e) {
+    const el = e.target;
+    if (el.classList && el.classList.contains("sheet-cell")) {
+      _saveSheetCell(el);
+    }
+  });
+
+  // Para <input type="text">/número, "change" só dispara ao perder o
+  // foco — ok. Para textarea de texto livre, também usamos "blur" para
+  // não depender só do evento change do navegador.
+  document.addEventListener(
+    "blur",
+    function (e) {
+      const el = e.target;
+      if (el.classList && el.classList.contains("sheet-cell") && el.tagName === "TEXTAREA") {
+        _saveSheetCell(el);
+      }
+    },
+    true
+  );
+
+  // Botão "+ Nova linha": data-url aponta para o endpoint que cria um
+  // registro em branco; ao criar, recarrega a página para mostrar a
+  // nova linha já editável (mantém o backend simples — sem precisar
+  // duplicar a renderização da linha em JS).
+  document.addEventListener("click", function (e) {
+    const el = e.target.closest && e.target.closest(".sheet-add-row");
+    if (!el) return;
+    const url = el.dataset.url;
+    if (!url) return;
+    el.style.opacity = "0.6";
+    apiRequest(url, { method: "POST", body: el.dataset.payload ? JSON.parse(el.dataset.payload) : {} })
+      .then(function () { window.location.reload(); })
+      .catch(function (err) {
+        el.style.opacity = "1";
+        toast(err.message || "Erro ao adicionar linha", "error");
+      });
+  });
 })();

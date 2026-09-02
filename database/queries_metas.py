@@ -228,6 +228,27 @@ def delete_goal_activity(activity_id: int):
     execute_query("DELETE FROM activities WHERE id=%s", (activity_id,), fetch=False)
 
 
+# Colunas que a tabela editável (estilo Excel) do plano de ação pode
+# gravar direto por célula — allowlist fixa para nunca interpolar nome
+# de coluna vindo do cliente sem checar.
+ACTIVITY_EDITABLE_FIELDS = {"title", "description", "start_date", "end_date", "status"}
+
+
+def update_activity_field(activity_id: int, field: str, value):
+    """Salva uma célula editada da tabela de atividades (autosave)."""
+    if field not in ACTIVITY_EDITABLE_FIELDS:
+        raise ValueError(f"Campo não editável: {field}")
+    if field in ("start_date", "end_date"):
+        value = value or None
+    else:
+        value = (value or "").strip() or None
+    execute_query(
+        f"UPDATE activities SET {field}=%s, updated_at=NOW() WHERE id=%s",
+        (value, activity_id),
+        fetch=False,
+    )
+
+
 # ══════════════════════════════════════════════════════════════════════════
 # Plano de ação 5W2H de uma atividade (usado quando a atividade está atrasada)
 # ══════════════════════════════════════════════════════════════════════════
@@ -276,6 +297,26 @@ def upsert_action_plan(data: dict):
 
 def delete_action_plan(plan_id: int):
     execute_query("DELETE FROM action_plan WHERE id=%s", (plan_id,), fetch=False)
+
+
+ACTION_PLAN_EDITABLE_FIELDS = {"what", "why", "who", "when_date", "where_place", "how", "how_much", "status"}
+
+
+def update_action_plan_field(plan_id: int, field: str, value):
+    """Salva uma célula editada da tabela 5W2H (autosave)."""
+    if field not in ACTION_PLAN_EDITABLE_FIELDS:
+        raise ValueError(f"Campo não editável: {field}")
+    if field == "how_much":
+        value = _safe_float(value, 0.0) or None
+    elif field == "when_date":
+        value = value or None
+    else:
+        value = (value or "").strip() or None
+    execute_query(
+        f"UPDATE action_plan SET {field}=%s WHERE id=%s",
+        (value, plan_id),
+        fetch=False,
+    )
 
 
 # ══════════════════════════════════════════════════════════════════════════

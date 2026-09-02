@@ -84,100 +84,95 @@
 <div class="section">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
     <h2 class="section-title" style="margin:0;">🗂️ Plano de ação — serviços/atividades</h2>
-    <button class="btn btn-primary btn-sm" onclick="openModal('modal-nova-atividade')">+ Adicionar</button>
+    <p style="margin:0;font-size:12px;color:var(--text-faint);">Edite direto na tabela — salva sozinho</p>
   </div>
 
-  {% if activities %}
-  <div class="grid grid-3">
-    {% for a in activities %}
-    <div class="card {{ 'card--danger' if a.is_late else 'card--accent' }}">
-      <div style="display:flex;justify-content:space-between;gap:8px;">
-        <h3 style="margin:0 0 6px;font-size:14.5px;">{{ a.title }}</h3>
-        {% if a.is_late %}<span class="badge badge-danger">Atrasada</span>{% endif %}
-      </div>
-      {% if a.description %}<p style="color:var(--text-muted);font-size:12.5px;">{{ a.description }}</p>{% endif %}
-      <p style="font-size:12px;color:var(--text-faint);margin:6px 0;">
-        {% if a.start_date %}Início: {{ a.start_date.strftime('%d/%m/%Y') }}{% endif %}
-        {% if a.end_date %} · Fim: {{ a.end_date.strftime('%d/%m/%Y') }}{% endif %}
-      </p>
-      <span class="badge {{ 'badge-success' if a.status=='Concluído' else 'badge-info' if a.status=='Em andamento' else 'badge-muted' }}">{{ a.status }}</span>
-
-      <div style="display:flex;gap:6px;margin-top:12px;">
-        <button class="btn btn-secondary btn-sm" onclick="openModal('modal-editar-atividade-{{ a.id }}')">✏️ Editar</button>
-        <form method="post" action="{{ url_for('metas.delete_activity', activity_id=a.id) }}" onsubmit="return confirm('Remover esta atividade e seu plano 5W2H?');">
-          <input type="hidden" name="goal_id" value="{{ goal.id }}">
-          <button type="submit" class="btn btn-danger btn-sm">🗑</button>
-        </form>
-      </div>
-
-      {% if a.is_late %}
-      <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border-soft);">
-        <p style="margin:0 0 8px;font-size:12.5px;color:var(--danger-soft);font-weight:600;">⚠️ Atividade atrasada — plano de ação 5W2H</p>
-        {% set plans = action_plans_by_activity.get(a.id, []) %}
-        {% for p in plans %}
-        <div style="background:var(--bg-elevated);border:1px solid var(--border-soft);border-radius:var(--radius-sm);padding:10px 12px;margin-bottom:8px;font-size:12px;">
-          <p style="margin:0;"><strong>O quê:</strong> {{ p.what or '—' }}</p>
-          <p style="margin:2px 0;"><strong>Por quê:</strong> {{ p.why or '—' }}</p>
-          <p style="margin:2px 0;"><strong>Quem:</strong> {{ p.who or '—' }} {% if p.when_date %} · <strong>Quando:</strong> {{ p.when_date.strftime('%d/%m/%Y') }}{% endif %}</p>
-          <p style="margin:2px 0;"><strong>Onde:</strong> {{ p.where_place or '—' }}</p>
-          <p style="margin:2px 0;"><strong>Como:</strong> {{ p.how or '—' }}{% if p.how_much %} · <strong>Quanto:</strong> R$ {{ '%.2f'|format(p.how_much)|replace('.', ',') }}{% endif %}</p>
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;">
-            <span class="badge {{ 'badge-success' if p.status=='Concluído' else 'badge-warning' }}">{{ p.status }}</span>
-            <form method="post" action="{{ url_for('metas.delete_action_plan_route', plan_id=p.id) }}" onsubmit="return confirm('Remover este item do 5W2H?');">
+  <div class="section card">
+    <div class="table-scroll">
+    <table class="table sheet-table">
+      <thead><tr><th style="min-width:180px;">Atividade / serviço</th><th style="min-width:200px;">Como será feito</th><th>Início</th><th>Fim</th><th>Status</th><th></th></tr></thead>
+      <tbody>
+      {% for a in activities %}
+        <tr style="{{ 'background:rgba(239,68,68,0.06);' if a.is_late else '' }}">
+          <td>
+            <input class="input sheet-cell" data-url="{{ url_for('metas.update_activity_field_route', activity_id=a.id) }}" data-field="title" value="{{ a.title }}" placeholder="Ex.: Fechar 3 contratos de consultoria">
+          </td>
+          <td>
+            <textarea class="input sheet-cell" data-url="{{ url_for('metas.update_activity_field_route', activity_id=a.id) }}" data-field="description" rows="1" placeholder="Como farei isso?">{{ a.description or '' }}</textarea>
+          </td>
+          <td>
+            <input class="input sheet-cell" type="date" data-url="{{ url_for('metas.update_activity_field_route', activity_id=a.id) }}" data-field="start_date" value="{{ a.start_date.isoformat() if a.start_date else '' }}">
+          </td>
+          <td>
+            <input class="input sheet-cell" type="date" data-url="{{ url_for('metas.update_activity_field_route', activity_id=a.id) }}" data-field="end_date" value="{{ a.end_date.isoformat() if a.end_date else '' }}">
+          </td>
+          <td>
+            <select class="input sheet-cell" data-url="{{ url_for('metas.update_activity_field_route', activity_id=a.id) }}" data-field="status">
+              {% for st in ['Não iniciado', 'Em andamento', 'Concluído'] %}
+              <option value="{{ st }}" {{ 'selected' if a.status==st else '' }}>{{ st }}</option>
+              {% endfor %}
+            </select>
+            {% if a.is_late %}<div><span class="badge badge-danger" style="margin-top:4px;">⚠️ Atrasada</span></div>{% endif %}
+          </td>
+          <td>
+            <form method="post" action="{{ url_for('metas.delete_activity', activity_id=a.id) }}" onsubmit="return confirm('Remover esta atividade e seu plano 5W2H?');">
               <input type="hidden" name="goal_id" value="{{ goal.id }}">
               <button type="submit" class="btn btn-ghost btn-sm">🗑</button>
             </form>
-          </div>
-        </div>
-        {% endfor %}
-        <button class="btn btn-secondary btn-sm btn-block" onclick="openModal('modal-5w2h-{{ a.id }}')">+ Novo item do plano 5W2H</button>
-      </div>
-      {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
     </div>
-
-    {# Modal editar atividade #}
-    <div class="modal-overlay" id="modal-editar-atividade-{{ a.id }}">
-      <div class="modal">
-        <div class="modal__header">
-          <h3>✏️ Editar atividade</h3>
-          <button class="modal__close" onclick="closeModal('modal-editar-atividade-{{ a.id }}')">&times;</button>
-        </div>
-        <form method="post" action="{{ url_for('metas.update_activity', activity_id=a.id) }}">
-          <input type="hidden" name="goal_id" value="{{ goal.id }}">
-          {% include "metas/_activity_form_fields.html" %}
-          <div class="modal__footer">
-            <button type="button" class="btn btn-secondary" onclick="closeModal('modal-editar-atividade-{{ a.id }}')">Cancelar</button>
-            <button type="submit" class="btn btn-primary">Salvar</button>
-          </div>
-        </form>
-      </div>
-    </div>
-
-    {% if a.is_late %}
-    <div class="modal-overlay" id="modal-5w2h-{{ a.id }}">
-      <div class="modal">
-        <div class="modal__header">
-          <h3>🗂️ Plano de ação 5W2H — {{ a.title }}</h3>
-          <button class="modal__close" onclick="closeModal('modal-5w2h-{{ a.id }}')">&times;</button>
-        </div>
-        <form method="post" action="{{ url_for('metas.create_action_plan', activity_id=a.id) }}">
-          <input type="hidden" name="goal_id" value="{{ goal.id }}">
-          {% include "metas/_action_plan_form_fields.html" %}
-          <div class="modal__footer">
-            <button type="button" class="btn btn-secondary" onclick="closeModal('modal-5w2h-{{ a.id }}')">Cancelar</button>
-            <button type="submit" class="btn btn-primary">Salvar</button>
-          </div>
-        </form>
-      </div>
-    </div>
+    <div class="sheet-add-row" data-url="{{ url_for('metas.create_activity_quick', goal_id=goal.id) }}">+ Nova linha</div>
+    {% if not activities %}
+    <p class="empty-state" style="padding:14px 0 4px;">Adicione os serviços/passos para atingir a meta: o quê fazer, quando começa e quando termina.</p>
     {% endif %}
-    {% endfor %}
   </div>
-  {% else %}
-  <div class="card empty-state">
-    <span class="emoji">🗂️</span>
-    <h2>Nenhuma atividade no plano de ação</h2>
-    <p>Adicione os serviços/passos para atingir a meta: o quê fazer, quando começa e quando termina.</p>
+
+  {% set late_activities_list = activities | selectattr('is_late') | list %}
+  {% if late_activities_list %}
+  <div class="section">
+    <h3 class="section-title" style="color:var(--danger-soft);">⚠️ Plano de ação 5W2H — atividades atrasadas</h3>
+    {% for a in late_activities_list %}
+    <div class="section card" style="border-left:4px solid var(--danger);">
+      <p style="margin:0 0 10px;font-weight:600;font-size:13.5px;">{{ a.title }}</p>
+      {% set plans = action_plans_by_activity.get(a.id, []) %}
+      <div class="table-scroll">
+      <table class="table sheet-table">
+        <thead><tr><th>O quê</th><th>Por quê</th><th>Quem</th><th>Quando</th><th>Onde</th><th>Como</th><th>Quanto (R$)</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+        {% for p in plans %}
+          <tr>
+            <td><input class="input sheet-cell" data-url="{{ url_for('metas.update_action_plan_field_route', plan_id=p.id) }}" data-field="what" value="{{ p.what or '' }}"></td>
+            <td><input class="input sheet-cell" data-url="{{ url_for('metas.update_action_plan_field_route', plan_id=p.id) }}" data-field="why" value="{{ p.why or '' }}"></td>
+            <td><input class="input sheet-cell" data-url="{{ url_for('metas.update_action_plan_field_route', plan_id=p.id) }}" data-field="who" value="{{ p.who or '' }}"></td>
+            <td><input class="input sheet-cell" type="date" data-url="{{ url_for('metas.update_action_plan_field_route', plan_id=p.id) }}" data-field="when_date" value="{{ p.when_date.isoformat() if p.when_date else '' }}"></td>
+            <td><input class="input sheet-cell" data-url="{{ url_for('metas.update_action_plan_field_route', plan_id=p.id) }}" data-field="where_place" value="{{ p.where_place or '' }}"></td>
+            <td><input class="input sheet-cell" data-url="{{ url_for('metas.update_action_plan_field_route', plan_id=p.id) }}" data-field="how" value="{{ p.how or '' }}"></td>
+            <td><input class="input sheet-cell" type="number" step="0.01" data-url="{{ url_for('metas.update_action_plan_field_route', plan_id=p.id) }}" data-field="how_much" value="{{ p.how_much or '' }}"></td>
+            <td>
+              <select class="input sheet-cell" data-url="{{ url_for('metas.update_action_plan_field_route', plan_id=p.id) }}" data-field="status">
+                {% for st in ['Pendente', 'Em andamento', 'Concluído'] %}
+                <option value="{{ st }}" {{ 'selected' if p.status==st else '' }}>{{ st }}</option>
+                {% endfor %}
+              </select>
+            </td>
+            <td>
+              <form method="post" action="{{ url_for('metas.delete_action_plan_route', plan_id=p.id) }}" onsubmit="return confirm('Remover este item do 5W2H?');">
+                <input type="hidden" name="goal_id" value="{{ goal.id }}">
+                <button type="submit" class="btn btn-ghost btn-sm">🗑</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      </div>
+      <div class="sheet-add-row" data-url="{{ url_for('metas.create_action_plan_quick', activity_id=a.id) }}">+ Novo item do plano 5W2H</div>
+    </div>
+    {% endfor %}
   </div>
   {% endif %}
 </div>
@@ -215,18 +210,6 @@
   </div>
 </div>
 
-<div class="modal-overlay" id="modal-nova-atividade">
-  <div class="modal">
-    <div class="modal__header"><h3>+ Nova atividade do plano de ação</h3><button class="modal__close" onclick="closeModal('modal-nova-atividade')">&times;</button></div>
-    <form method="post" action="{{ url_for('metas.create_activity', goal_id=goal.id) }}">
-      {% include "metas/_activity_form_fields.html" %}
-      <div class="modal__footer">
-        <button type="button" class="btn btn-secondary" onclick="closeModal('modal-nova-atividade')">Cancelar</button>
-        <button type="submit" class="btn btn-primary">Adicionar</button>
-      </div>
-    </form>
-  </div>
-</div>
 {% endblock %}
 
 {% block scripts %}
