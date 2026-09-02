@@ -1,0 +1,197 @@
+{% extends "base.html" %}
+{% block title %}Flow{% endblock %}
+{% block content %}
+<div class="main-header">
+  <div><h1>🌊 Flow</h1><p>Diário do dia e sessões de trabalho profundo.</p></div>
+  <a class="btn btn-secondary" href="{{ url_for('flow.records') }}">📊 Registros</a>
+</div>
+
+<div class="section grid grid-4">
+  <div class="card metric card--accent"><span class="metric__label">⏱️ Sessões</span><span class="metric__value">{{ summary.total_sessions or 0 }}</span></div>
+  <div class="card metric card--success"><span class="metric__label">⏳ Horas totais</span><span class="metric__value">{{ '%.1f'|format((summary.total_minutes or 0) / 60) }}h</span></div>
+  <div class="card metric card--info"><span class="metric__label">⭐ Nota média</span><span class="metric__value">{{ summary.avg_score or '—' }}</span></div>
+  <div class="card metric card--warning"><span class="metric__label">🏆 Maior sessão</span><span class="metric__value">{{ summary.longest_session or 0 }} min</span></div>
+</div>
+
+<div class="section grid grid-2">
+  <div class="card">
+    <h2 class="section-title">⏱️ Sessão de trabalho profundo</h2>
+    <div style="text-align:center;padding:20px 0;">
+      <div id="flow-timer-display" style="font-size:44px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--primary-lighter);">00:00:00</div>
+      <p id="flow-timer-status" style="color:var(--text-faint);font-size:12.5px;margin:6px 0 18px;">Pronto para começar</p>
+      <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
+        <button id="flow-btn-start" class="btn btn-primary" onclick="flowStart()">▶️ Iniciar</button>
+        <button id="flow-btn-pause" class="btn btn-secondary" onclick="flowPause()" style="display:none;">⏸️ Pausar</button>
+        <button id="flow-btn-resume" class="btn btn-secondary" onclick="flowResume()" style="display:none;">▶️ Retomar</button>
+        <button id="flow-btn-finish" class="btn btn-danger" onclick="flowFinish()" style="display:none;">⏹️ Finalizar</button>
+      </div>
+    </div>
+    {% if sessions_today %}
+    <div class="table-scroll">
+    <table class="table table--responsive">
+      <thead><tr><th>Início</th><th>Duração</th><th>Pausas</th><th>Nota</th></tr></thead>
+      <tbody>
+      {% for s in sessions_today %}
+        <tr>
+          <td data-label="Início">{{ s.started_at.strftime('%H:%M') if s.started_at else '—' }}</td>
+          <td data-label="Duração">{{ s.duration_minutes }} min</td>
+          <td data-label="Pausas">{{ s.pause_count }}</td>
+          <td data-label="Nota">{{ s.session_score or '—' }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h2 class="section-title">📓 Diário de hoje</h2>
+    <form method="post" action="{{ url_for('flow.save_diary') }}">
+      <input type="hidden" name="entry_date" value="{{ today.isoformat() }}">
+      <div class="field"><label>O que foi bem hoje?</label><textarea class="input" name="went_well" rows="2">{{ diary_today.went_well if diary_today else '' }}</textarea></div>
+      <div class="field"><label>O que pode melhorar?</label><textarea class="input" name="could_improve" rows="2">{{ diary_today.could_improve if diary_today else '' }}</textarea></div>
+      <div class="field"><label>Gratidão</label><textarea class="input" name="gratitude" rows="2">{{ diary_today.gratitude if diary_today else '' }}</textarea></div>
+      <div class="form-row">
+        <div class="field"><label>Nota do dia (1–10)</label><input class="input" type="number" name="day_score" min="1" max="10" value="{{ diary_today.day_score if diary_today else '' }}"></div>
+      </div>
+      <div class="field"><label>Observações</label><textarea class="input" name="notes" rows="2">{{ diary_today.notes if diary_today else '' }}</textarea></div>
+      <button type="submit" class="btn btn-primary">💾 Salvar diário</button>
+    </form>
+  </div>
+</div>
+
+<div class="section card">
+  <h2 class="section-title">📈 Minutos de flow — esta semana</h2>
+  <div id="flow-week-chart"></div>
+</div>
+
+{% if diary_entries %}
+<div class="section">
+  <h2 class="section-title">📔 Diário — últimas entradas</h2>
+  <div class="card">
+    <div class="table-scroll">
+    <table class="table table--responsive">
+      <thead><tr><th>Data</th><th>O que foi bem</th><th>Melhorar</th><th>Gratidão</th><th>Nota</th></tr></thead>
+      <tbody>
+      {% for e in diary_entries %}
+        <tr>
+          <td data-label="Data">{{ e.entry_date.strftime('%d/%m/%Y') }}</td>
+          <td data-label="O que foi bem">{{ e.went_well or '—' }}</td>
+          <td data-label="Melhorar">{{ e.could_improve or '—' }}</td>
+          <td data-label="Gratidão">{{ e.gratitude or '—' }}</td>
+          <td data-label="Nota">{{ e.day_score or '—' }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+  var wc = {{ week_chart|tojson }};
+  new ApexCharts(document.getElementById('flow-week-chart'), {
+    chart: { type: 'bar', height: 260, toolbar: { show: false }, background: 'transparent' },
+    theme: { mode: 'dark' },
+    series: [{ name: 'Minutos', data: wc.minutes }],
+    xaxis: { categories: wc.labels, labels: { style: { colors: '#94A3B8' } } },
+    yaxis: { labels: { style: { colors: '#94A3B8' } } },
+    colors: ['#3B82F6'],
+    plotOptions: { bar: { borderRadius: 4, columnWidth: '45%' } },
+    dataLabels: { enabled: false }, grid: { borderColor: '#334155' },
+    tooltip: { theme: 'dark' },
+  }).render();
+
+  // ── Temporizador de sessão Flow ─────────────────────────────────────────
+  var flowState = 'idle'; // idle | running | paused
+  var startedAtIso = null, elapsedBeforePause = 0, pauseStartedAt = null, pauseCount = 0, pauseSeconds = 0;
+  var tickInterval = null;
+
+  function _fmt(totalSeconds) {
+    var h = Math.floor(totalSeconds / 3600);
+    var m = Math.floor((totalSeconds % 3600) / 60);
+    var s = Math.floor(totalSeconds % 60);
+    return [h, m, s].map(function (v) { return String(v).padStart(2, '0'); }).join(':');
+  }
+
+  function _currentElapsedSeconds() {
+    if (flowState === 'running') {
+      return elapsedBeforePause + (Date.now() - _runStartedAt) / 1000;
+    }
+    return elapsedBeforePause;
+  }
+
+  var _runStartedAt = null;
+
+  function flowTick() {
+    document.getElementById('flow-timer-display').textContent = _fmt(_currentElapsedSeconds());
+  }
+
+  function flowStart() {
+    flowState = 'running';
+    startedAtIso = new Date().toISOString();
+    _runStartedAt = Date.now();
+    elapsedBeforePause = 0; pauseCount = 0; pauseSeconds = 0;
+    document.getElementById('flow-btn-start').style.display = 'none';
+    document.getElementById('flow-btn-pause').style.display = '';
+    document.getElementById('flow-btn-finish').style.display = '';
+    document.getElementById('flow-timer-status').textContent = 'Em andamento…';
+    tickInterval = setInterval(flowTick, 1000);
+  }
+
+  function flowPause() {
+    if (flowState !== 'running') return;
+    elapsedBeforePause = _currentElapsedSeconds();
+    flowState = 'paused';
+    pauseStartedAt = Date.now();
+    pauseCount += 1;
+    clearInterval(tickInterval);
+    document.getElementById('flow-btn-pause').style.display = 'none';
+    document.getElementById('flow-btn-resume').style.display = '';
+    document.getElementById('flow-timer-status').textContent = 'Pausado';
+  }
+
+  function flowResume() {
+    if (flowState !== 'paused') return;
+    pauseSeconds += (Date.now() - pauseStartedAt) / 1000;
+    flowState = 'running';
+    _runStartedAt = Date.now();
+    document.getElementById('flow-btn-resume').style.display = 'none';
+    document.getElementById('flow-btn-pause').style.display = '';
+    document.getElementById('flow-timer-status').textContent = 'Em andamento…';
+    tickInterval = setInterval(flowTick, 1000);
+  }
+
+  function flowFinish() {
+    clearInterval(tickInterval);
+    var totalSeconds = _currentElapsedSeconds();
+    var durationMinutes = Math.round(totalSeconds / 60);
+    var score = prompt('Nota da sessão (1 a 10, opcional):', '');
+    apiRequest('{{ url_for("flow.save_session") }}', {
+      method: 'POST',
+      body: {
+        started_at: startedAtIso,
+        duration_minutes: durationMinutes,
+        pause_count: pauseCount,
+        pause_minutes: Math.round(pauseSeconds / 60),
+        session_score: score || null,
+      },
+    }).then(function () {
+      toast('Sessão registrada: ' + durationMinutes + ' min', 'success');
+      setTimeout(function () { window.location.reload(); }, 700);
+    }).catch(function (err) {
+      toast(err.message || 'Erro ao salvar sessão', 'error');
+    });
+    flowState = 'idle';
+    document.getElementById('flow-btn-finish').style.display = 'none';
+    document.getElementById('flow-btn-pause').style.display = 'none';
+    document.getElementById('flow-btn-resume').style.display = 'none';
+    document.getElementById('flow-btn-start').style.display = '';
+    document.getElementById('flow-timer-status').textContent = 'Pronto para começar';
+  }
+</script>
+{% endblock %}

@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Registros — Flow{% endblock %}
+{% block content %}
+<div class="main-header">
+  <div>
+    <p style="margin:0 0 4px;"><a href="{{ url_for('flow.index') }}" style="color:#BFDBFE;font-size:12.5px;">← Flow</a></p>
+    <h1>📊 Registros de Flow</h1>
+  </div>
+</div>
+
+<form method="get" class="section card" style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end;">
+  <div class="field" style="margin:0;"><label>Período</label>
+    <select class="input" name="period">
+      <option value="diario" {{ 'selected' if period=='diario' else '' }}>Diário</option>
+      <option value="semanal" {{ 'selected' if period=='semanal' else '' }}>Semanal</option>
+      <option value="mensal" {{ 'selected' if period=='mensal' else '' }}>Mensal</option>
+    </select>
+  </div>
+  <div class="field" style="margin:0;"><label>Data de referência</label><input class="input" type="date" name="ref" value="{{ ref.isoformat() }}"></div>
+  <button type="submit" class="btn btn-primary">Filtrar</button>
+</form>
+
+<div class="section card">
+  {% if rows %}
+  <div class="table-scroll">
+  <table class="table table--responsive">
+    <thead>
+      {% if period == 'diario' %}
+      <tr><th>Início</th><th>Fim</th><th>Duração</th><th>Pausas</th><th>Nota</th><th>Observações</th></tr>
+      {% else %}
+      <tr><th>Data</th><th>Sessões</th><th>Minutos totais</th><th>Nota média</th></tr>
+      {% endif %}
+    </thead>
+    <tbody>
+    {% for r in rows %}
+      <tr>
+        {% if period == 'diario' %}
+        <td data-label="Início">{{ r.started_at.strftime('%H:%M') if r.started_at else '—' }}</td>
+        <td data-label="Fim">{{ r.ended_at.strftime('%H:%M') if r.ended_at else '—' }}</td>
+        <td data-label="Duração">{{ r.duration_minutes }} min</td>
+        <td data-label="Pausas">{{ r.pause_count }}</td>
+        <td data-label="Nota">{{ r.session_score or '—' }}</td>
+        <td data-label="Observações">{{ r.notes or '—' }}</td>
+        {% else %}
+        <td data-label="Data">{{ r.session_date.strftime('%d/%m/%Y') }}</td>
+        <td data-label="Sessões">{{ r.total_sessions }}</td>
+        <td data-label="Minutos totais">{{ r.total_minutes }}</td>
+        <td data-label="Nota média">{{ r.avg_score or '—' }}</td>
+        {% endif %}
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <div class="empty-state"><span class="emoji">📊</span><h2>Sem sessões neste período</h2></div>
+  {% endif %}
+</div>
+{% endblock %}

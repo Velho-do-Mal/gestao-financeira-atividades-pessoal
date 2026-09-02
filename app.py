@@ -87,8 +87,10 @@ def create_app():
     from blueprints.habitos import habitos_bp
     app.register_blueprint(habitos_bp)
 
+    from blueprints.flow import flow_bp
+    app.register_blueprint(flow_bp)
+
     from blueprints._stub import make_stub_blueprint
-    app.register_blueprint(make_stub_blueprint("flow", "/flow", "Flow", "🌊"))
     app.register_blueprint(make_stub_blueprint("saude", "/saude", "Saúde", "💪"))
 
     # ─── Digest diário (agendador em processo) ──────────────────────
