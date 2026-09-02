@@ -6,7 +6,7 @@ Dashboard principal — KPIs do dia, fluxo de caixa, resumo do dia
 
 from datetime import date
 
-from flask import Blueprint, render_template
+from flask import Blueprint, render_template, g
 
 from database.queries import get_home_summary, get_cashflow_chart_data, get_budget_vs_actual
 from database.queries_digest import get_today_activities
@@ -18,11 +18,11 @@ home_bp = Blueprint("home", __name__)
 DAYS_PT = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"]
 
 
-def _today_habits():
+def _today_habits(user_id):
     try:
         from database.queries_habitos import get_today_habits, _is_scheduled
         today = date.today()
-        df = get_today_habits()
+        df = get_today_habits(user_id)
         result = []
         if df is not None and not df.empty:
             for _, hr in df.iterrows():
@@ -33,11 +33,11 @@ def _today_habits():
         return None  # módulo não configurado ainda
 
 
-def _today_workout():
+def _today_workout(user_id):
     try:
         from database.queries_saude import get_divisions, get_exercises
         today_name = DAYS_PT[date.today().weekday()]
-        df_divs = get_divisions()
+        df_divs = get_divisions(user_id)
         if df_divs is None or df_divs.empty:
             return None, [], today_name
         treino = None
@@ -51,7 +51,7 @@ def _today_workout():
                 treino = free.iloc[0]
         if treino is None:
             return None, [], today_name
-        exercises = get_exercises(int(treino["id"]))
+        exercises = get_exercises(user_id, int(treino["id"]))
         ex_list = exercises.to_dict("records") if exercises is not None and not exercises.empty else []
         return treino.to_dict(), ex_list, today_name
     except Exception:
@@ -60,9 +60,10 @@ def _today_workout():
 
 @home_bp.route("/")
 def index():
-    summary = get_home_summary()
+    user_id = g.user_id
+    summary = get_home_summary(user_id)
 
-    df_cf = get_cashflow_chart_data(6)
+    df_cf = get_cashflow_chart_data(user_id, 6)
     cashflow = {"months": [], "income": [], "expense": [], "accumulated": []}
     if df_cf is not None and not df_cf.empty:
         for _, row in df_cf.iterrows():
@@ -71,13 +72,13 @@ def index():
             cashflow["expense"].append(float(row["expense"]))
             cashflow["accumulated"].append(float(row["accumulated"]))
 
-    activities_today = get_today_activities()
-    habits_today = _today_habits()
-    workout, workout_exercises, workout_day = _today_workout()
+    activities_today = get_today_activities(user_id)
+    habits_today = _today_habits(user_id)
+    workout, workout_exercises, workout_day = _today_workout(user_id)
 
-    active_goals = get_goals(status="Em andamento")
+    active_goals = get_goals(user_id, status="Em andamento")
 
-    df_bva = get_budget_vs_actual(date.today().replace(day=1))
+    df_bva = get_budget_vs_actual(user_id, date.today().replace(day=1))
     budget_rows = []
     if df_bva is not None and not df_bva.empty:
         for _, row in df_bva.iterrows():

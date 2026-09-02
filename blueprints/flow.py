@@ -6,7 +6,7 @@ e registros diário/semanal/mensal.
 
 from datetime import date, datetime, timedelta
 
-from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
+from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, g
 
 from database.queries_flow import (
     get_diary_entry, save_diary_entry, get_diary_entries,
@@ -31,15 +31,16 @@ def _parse_date(value):
 
 @flow_bp.route("/")
 def index():
+    user_id = g.user_id
     today = date.today()
-    diary_today = get_diary_entry(today)
+    diary_today = get_diary_entry(user_id, today)
 
-    summary = get_flow_summary()
+    summary = get_flow_summary(user_id)
 
-    df_today_sessions = get_sessions_daily(today)
+    df_today_sessions = get_sessions_daily(user_id, today)
     sessions_today = df_today_sessions.to_dict("records") if df_today_sessions is not None and not df_today_sessions.empty else []
 
-    df_week = get_sessions_weekly(today)
+    df_week = get_sessions_weekly(user_id, today)
     week_start = today - timedelta(days=today.weekday())
     week_by_date = {}
     if df_week is not None and not df_week.empty:
@@ -52,7 +53,7 @@ def index():
         "minutes": [week_by_date.get(week_start + timedelta(days=i), 0) for i in range(7)],
     }
 
-    df_diary = get_diary_entries(limit=10)
+    df_diary = get_diary_entries(user_id, limit=10)
     diary_entries = df_diary.to_dict("records") if df_diary is not None and not df_diary.empty else []
 
     return render_template(
@@ -67,7 +68,7 @@ def index():
 def save_diary():
     entry_date = _parse_date(request.form.get("entry_date")) or date.today()
     score = request.form.get("day_score")
-    save_diary_entry({
+    save_diary_entry(g.user_id, {
         "entry_date": entry_date,
         "went_well": request.form.get("went_well", "").strip() or None,
         "could_improve": request.form.get("could_improve", "").strip() or None,
@@ -93,7 +94,7 @@ def save_session():
         score = int(score) if score not in (None, "") else None
     except (TypeError, ValueError):
         score = None
-    save_flow_session({
+    save_flow_session(g.user_id, {
         "session_date": date.today(),
         "started_at": body.get("started_at"),
         "ended_at": datetime.now(),
@@ -108,18 +109,19 @@ def save_session():
 
 @flow_bp.route("/registros")
 def records():
+    user_id = g.user_id
     period = request.args.get("period", "semanal")
     ref = _parse_date(request.args.get("ref")) or date.today()
 
     if period == "diario":
-        df = get_sessions_daily(ref)
+        df = get_sessions_daily(user_id, ref)
         rows = df.to_dict("records") if df is not None and not df.empty else []
     elif period == "mensal":
-        df = get_sessions_monthly(ref)
+        df = get_sessions_monthly(user_id, ref)
         rows = df.to_dict("records") if df is not None and not df.empty else []
     else:
         period = "semanal"
-        df = get_sessions_weekly(ref)
+        df = get_sessions_weekly(user_id, ref)
         rows = df.to_dict("records") if df is not None and not df.empty else []
 
     return render_template("flow/registros.html", period=period, ref=ref, rows=rows)

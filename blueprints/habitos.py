@@ -5,7 +5,7 @@ Módulo Hábitos — ciclos de 90 dias, checks diários, streaks.
 
 from datetime import datetime, date, timedelta
 
-from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
+from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, g
 
 from database.queries_habitos import (
     get_habits, upsert_habit, delete_habit,
@@ -64,10 +64,11 @@ def _freq_label(h):
 # ─── Listagem ───────────────────────────────────────────────────────────
 @habitos_bp.route("/")
 def index():
-    df = get_habits()
+    user_id = g.user_id
+    df = get_habits(user_id)
     habits = df.to_dict("records") if df is not None and not df.empty else []
 
-    df_today = get_today_habits()
+    df_today = get_today_habits(user_id)
     today_by_habit = {}
     if df_today is not None and not df_today.empty:
         for _, row in df_today.iterrows():
@@ -78,7 +79,7 @@ def index():
         t = today_by_habit.get(h["id"])
         if t:
             cycle = {"start_date": t["start_date"], "end_date": t["end_date"]}
-            df_checks = get_checks(int(t["cycle_id"]))
+            df_checks = get_checks(user_id, int(t["cycle_id"]))
             stats = calculate_stats(cycle, df_checks, h)
             h["cycle_id"] = int(t["cycle_id"])
             h["done_today"] = bool(t["done_today"])
@@ -97,7 +98,7 @@ def create():
     if not data["name"]:
         flash("Nome do hábito é obrigatório.", "error")
     else:
-        upsert_habit(data)
+        upsert_habit(g.user_id, data)
         flash("Hábito criado.", "success")
     return redirect(url_for("habitos.index"))
 
@@ -106,37 +107,48 @@ def create():
 def update(habit_id):
     data = _habit_form_data(request.form)
     data["id"] = habit_id
-    upsert_habit(data)
-    flash("Hábito atualizado.", "success")
+    try:
+        upsert_habit(g.user_id, data)
+        flash("Hábito atualizado.", "success")
+    except PermissionError:
+        flash("Hábito não encontrado.", "error")
     return redirect(url_for("habitos.index"))
 
 
 @habitos_bp.route("/<int:habit_id>/excluir", methods=["POST"])
 def delete(habit_id):
-    delete_habit(habit_id)
-    flash("Hábito removido.", "success")
+    try:
+        delete_habit(g.user_id, habit_id)
+        flash("Hábito removido.", "success")
+    except PermissionError:
+        flash("Hábito não encontrado.", "error")
     return redirect(url_for("habitos.index"))
 
 
 @habitos_bp.route("/<int:habit_id>/ciclo/iniciar", methods=["POST"])
 def cycle_start(habit_id):
-    start_cycle(habit_id, date.today())
-    flash("Ciclo de 90 dias iniciado.", "success")
+    try:
+        start_cycle(g.user_id, habit_id, date.today())
+        flash("Ciclo de 90 dias iniciado.", "success")
+    except PermissionError:
+        flash("Hábito não encontrado.", "error")
     return redirect(url_for("habitos.detail", habit_id=habit_id))
 
 
 @habitos_bp.route("/<int:habit_id>/hoje/toggle", methods=["POST"])
 def toggle_today(habit_id):
-    cycle = get_active_cycle(habit_id)
+    user_id = g.user_id
+    cycle = get_active_cycle(user_id, habit_id)
     if cycle:
-        toggle_check(cycle["id"], date.today())
+        toggle_check(user_id, cycle["id"], date.today())
     return redirect(request.referrer or url_for("habitos.index"))
 
 
 # ─── Detalhe do hábito — ciclo ativo, grade de checks, histórico ─────────
 @habitos_bp.route("/<int:habit_id>")
 def detail(habit_id):
-    df = get_habits()
+    user_id = g.user_id
+    df = get_habits(user_id)
     habits = df.to_dict("records") if df is not None and not df.empty else []
     habit = next((h for h in habits if h["id"] == habit_id), None)
     if not habit:
@@ -144,11 +156,11 @@ def detail(habit_id):
         return redirect(url_for("habitos.index"))
     habit["freq_label"] = _freq_label(habit)
 
-    cycle = get_active_cycle(habit_id)
+    cycle = get_active_cycle(user_id, habit_id)
     stats = None
     days_grid = []
     if cycle:
-        df_checks = get_checks(cycle["id"])
+        df_checks = get_checks(user_id, cycle["id"])
         stats = calculate_stats(cycle, df_checks, habit)
         done_dates = set()
         if df_checks is not None and not df_checks.empty:
@@ -168,7 +180,7 @@ def detail(habit_id):
             })
             d += timedelta(days=1)
 
-    df_cycles = get_cycles(habit_id)
+    df_cycles = get_cycles(user_id, habit_id)
     cycles = df_cycles.to_dict("records") if df_cycles is not None and not df_cycles.empty else []
 
     return render_template(
@@ -179,14 +191,15 @@ def detail(habit_id):
 
 @habitos_bp.route("/<int:habit_id>/check/<check_date>/toggle", methods=["POST"])
 def toggle_day(habit_id, check_date):
-    cycle = get_active_cycle(habit_id)
+    user_id = g.user_id
+    cycle = get_active_cycle(user_id, habit_id)
     if not cycle:
         return jsonify({"ok": False, "error": "Sem ciclo ativo."}), 400
     d = _parse_date(check_date)
     if not d:
         return jsonify({"ok": False, "error": "Data inválida."}), 400
-    toggle_check(cycle["id"], d)
-    df_checks = get_checks(cycle["id"])
+    toggle_check(user_id, cycle["id"], d)
+    df_checks = get_checks(user_id, cycle["id"])
     done = False
     if df_checks is not None and not df_checks.empty:
         row = df_checks[df_checks["check_date"].apply(lambda x: (x.date() if hasattr(x, "date") else x) == d)]

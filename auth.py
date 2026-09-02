@@ -11,7 +11,7 @@ username e is_admin.
 
 from functools import wraps
 
-from flask import Blueprint, render_template, request, redirect, url_for, session, flash, g
+from flask import Blueprint, render_template, request, redirect, url_for, session, flash, g, has_request_context
 
 from database.queries_users import verify_login, get_user_by_id
 
@@ -65,6 +65,11 @@ def register_auth_guard(app):
 
     @app.context_processor
     def _inject_user():
+        # Fora de um request (ex.: render_template chamado pelo digest diário
+        # dentro de app.app_context(), sem request HTTP) não há sessão —
+        # devolve valores neutros em vez de estourar RuntimeError.
+        if not has_request_context():
+            return {"current_username": None, "current_is_admin": False}
         return {
             "current_username": session.get("username"),
             "current_is_admin": bool(session.get("is_admin")),

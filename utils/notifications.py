@@ -20,14 +20,19 @@ def get_recipients() -> list[str]:
     return [r.strip() for r in raw.split(",") if r.strip()]
 
 
-def send_email(subject: str, body_html: str) -> bool:
-    """Envia e-mail HTML para os destinatários configurados em EMAIL_RECIPIENTS."""
+def send_email(subject: str, body_html: str, to=None) -> bool:
+    """Envia e-mail HTML. `to` pode ser uma string ou lista de e-mails — usado
+    pelo digest diário para mandar cada usuário para o seu próprio e-mail.
+    Sem `to`, cai no EMAIL_RECIPIENTS (compatibilidade)."""
     try:
         smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com")
         smtp_port = int(os.getenv("SMTP_PORT", "587"))
         smtp_user = os.getenv("SMTP_USER", "")
         smtp_pass = os.getenv("SMTP_PASSWORD", "")
-        recipients = get_recipients()
+        if to:
+            recipients = [to] if isinstance(to, str) else list(to)
+        else:
+            recipients = get_recipients()
 
         if not smtp_user or not smtp_pass:
             logger.warning("SMTP_USER/SMTP_PASSWORD não configurados — e-mail não enviado.")

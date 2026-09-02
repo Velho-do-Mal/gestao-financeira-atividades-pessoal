@@ -1,6 +1,12 @@
 """
 database/queries_saude.py
 Queries do módulo Saúde — Musculação e Nutrição
+
+MULTIUSUÁRIO: toda função de musculação/nutrição pessoal recebe `user_id` e
+filtra/estampa esse valor. A base de alimentos (`foods`) é a exceção
+deliberada — é referência nutricional compartilhada entre todos os usuários,
+não dado pessoal, então suas funções (get_foods/upsert_food/delete_food/
+update_food_field/seed_foods_if_empty) continuam globais, sem user_id.
 """
 
 import pandas as pd
@@ -12,123 +18,170 @@ from database.connection import execute_query, db_cursor
 # MUSCULAÇÃO — DIVISÕES
 # ══════════════════════════════════════════════════════════════════════════════
 
-def get_divisions() -> pd.DataFrame:
+def get_divisions(user_id: int) -> pd.DataFrame:
     rows = execute_query("""
-        SELECT * FROM workout_divisions WHERE active=TRUE ORDER BY order_index, name
-    """)
+        SELECT * FROM workout_divisions WHERE active=TRUE AND user_id=%s ORDER BY order_index, name
+    """, (user_id,))
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
 
-def upsert_division(data: dict):
+def upsert_division(user_id: int, data: dict):
     if data.get('id'):
-        execute_query("""
+        rows = execute_query("""
             UPDATE workout_divisions SET name=%s, day_of_week=%s, muscle_groups=%s
-            WHERE id=%s
-        """, (data['name'], data.get('day_of_week'), data.get('muscle_groups'), data['id']),
-             fetch=False)
+            WHERE id=%s AND user_id=%s
+            RETURNING id
+        """, (data['name'], data.get('day_of_week'), data.get('muscle_groups'), data['id'], user_id))
+        if not rows:
+            raise PermissionError("Divisão não encontrada.")
     else:
         execute_query("""
-            INSERT INTO workout_divisions (name, day_of_week, muscle_groups)
-            VALUES (%s,%s,%s)
-        """, (data['name'], data.get('day_of_week'), data.get('muscle_groups')), fetch=False)
+            INSERT INTO workout_divisions (name, day_of_week, muscle_groups, user_id)
+            VALUES (%s,%s,%s,%s)
+        """, (data['name'], data.get('day_of_week'), data.get('muscle_groups'), user_id), fetch=False)
 
 
-def delete_division(div_id: int):
-    execute_query("UPDATE workout_divisions SET active=FALSE WHERE id=%s", (div_id,), fetch=False)
+def delete_division(user_id: int, div_id: int):
+    rows = execute_query(
+        "UPDATE workout_divisions SET active=FALSE WHERE id=%s AND user_id=%s RETURNING id",
+        (div_id, user_id),
+    )
+    if not rows:
+        raise PermissionError("Divisão não encontrada.")
 
 
 DIVISION_EDITABLE_FIELDS = {"name", "day_of_week", "muscle_groups"}
 
 
-def update_division_field(div_id: int, field: str, value):
+def update_division_field(user_id: int, div_id: int, field: str, value):
     if field not in DIVISION_EDITABLE_FIELDS:
         raise ValueError(f"Campo não editável: {field}")
     value = (value or "").strip() or None
-    execute_query(f"UPDATE workout_divisions SET {field}=%s WHERE id=%s", (value, div_id), fetch=False)
+    rows = execute_query(
+        f"UPDATE workout_divisions SET {field}=%s WHERE id=%s AND user_id=%s RETURNING id",
+        (value, div_id, user_id),
+    )
+    if not rows:
+        raise PermissionError("Divisão não encontrada.")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # MUSCULAÇÃO — EXERCÍCIOS
 # ══════════════════════════════════════════════════════════════════════════════
 
-def get_exercises(division_id: int) -> pd.DataFrame:
+def get_exercises(user_id: int, division_id: int) -> pd.DataFrame:
     rows = execute_query("""
-        SELECT * FROM exercises WHERE division_id=%s AND active=TRUE ORDER BY order_index, name
-    """, (division_id,))
+        SELECT * FROM exercises WHERE division_id=%s AND active=TRUE AND user_id=%s ORDER BY order_index, name
+    """, (division_id, user_id))
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
 
-def get_all_exercises() -> pd.DataFrame:
+def get_all_exercises(user_id: int) -> pd.DataFrame:
     rows = execute_query("""
         SELECT e.*, d.name AS division_name
         FROM exercises e JOIN workout_divisions d ON e.division_id=d.id
-        WHERE e.active=TRUE ORDER BY d.order_index, e.order_index, e.name
-    """)
+        WHERE e.active=TRUE AND e.user_id=%s ORDER BY d.order_index, e.order_index, e.name
+    """, (user_id,))
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
 
-def upsert_exercise(data: dict):
+def upsert_exercise(user_id: int, data: dict):
     if data.get('id'):
-        execute_query("""
-            UPDATE exercises SET name=%s, equipment=%s, notes=%s WHERE id=%s
-        """, (data['name'], data.get('equipment'), data.get('notes'), data['id']), fetch=False)
+        rows = execute_query("""
+            UPDATE exercises SET name=%s, equipment=%s, notes=%s WHERE id=%s AND user_id=%s RETURNING id
+        """, (data['name'], data.get('equipment'), data.get('notes'), data['id'], user_id))
+        if not rows:
+            raise PermissionError("Exercício não encontrado.")
     else:
+        owner = execute_query(
+            "SELECT id FROM workout_divisions WHERE id=%s AND user_id=%s",
+            (data['division_id'], user_id),
+        )
+        if not owner:
+            raise PermissionError("Divisão não encontrada.")
         execute_query("""
-            INSERT INTO exercises (division_id, name, equipment, notes, order_index)
-            VALUES (%s,%s,%s,%s,%s)
+            INSERT INTO exercises (division_id, name, equipment, notes, order_index, user_id)
+            VALUES (%s,%s,%s,%s,%s,%s)
         """, (data['division_id'], data['name'], data.get('equipment'),
-               data.get('notes'), data.get('order_index', 0)), fetch=False)
+               data.get('notes'), data.get('order_index', 0), user_id), fetch=False)
 
 
-def delete_exercise(ex_id: int):
-    execute_query("UPDATE exercises SET active=FALSE WHERE id=%s", (ex_id,), fetch=False)
+def delete_exercise(user_id: int, ex_id: int):
+    rows = execute_query(
+        "UPDATE exercises SET active=FALSE WHERE id=%s AND user_id=%s RETURNING id",
+        (ex_id, user_id),
+    )
+    if not rows:
+        raise PermissionError("Exercício não encontrado.")
 
 
 EXERCISE_EDITABLE_FIELDS = {"name", "equipment", "notes"}
 
 
-def update_exercise_field(ex_id: int, field: str, value):
+def update_exercise_field(user_id: int, ex_id: int, field: str, value):
     if field not in EXERCISE_EDITABLE_FIELDS:
         raise ValueError(f"Campo não editável: {field}")
     value = (value or "").strip() or None
-    execute_query(f"UPDATE exercises SET {field}=%s WHERE id=%s", (value, ex_id), fetch=False)
-
-
-def update_exercise_order(ex_id: int, new_order: int):
-    """Atualiza order_index de um exercício."""
-    execute_query(
-        "UPDATE exercises SET order_index=%s WHERE id=%s",
-        (new_order, ex_id), fetch=False,
+    rows = execute_query(
+        f"UPDATE exercises SET {field}=%s WHERE id=%s AND user_id=%s RETURNING id",
+        (value, ex_id, user_id),
     )
+    if not rows:
+        raise PermissionError("Exercício não encontrado.")
+
+
+def update_exercise_order(user_id: int, ex_id: int, new_order: int):
+    """Atualiza order_index de um exercício."""
+    rows = execute_query(
+        "UPDATE exercises SET order_index=%s WHERE id=%s AND user_id=%s RETURNING id",
+        (new_order, ex_id, user_id),
+    )
+    if not rows:
+        raise PermissionError("Exercício não encontrado.")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # MUSCULAÇÃO — SÉRIES PLANEJADAS
 # ══════════════════════════════════════════════════════════════════════════════
 
-def get_exercise_sets(exercise_id: int) -> pd.DataFrame:
+def get_exercise_sets(user_id: int, exercise_id: int) -> pd.DataFrame:
     rows = execute_query("""
-        SELECT * FROM exercise_sets WHERE exercise_id=%s ORDER BY set_number
-    """, (exercise_id,))
+        SELECT * FROM exercise_sets WHERE exercise_id=%s AND user_id=%s ORDER BY set_number
+    """, (exercise_id, user_id))
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
 
-def upsert_exercise_set(data: dict):
+def upsert_exercise_set(user_id: int, data: dict):
     if data.get('id'):
-        execute_query("""
-            UPDATE exercise_sets SET set_number=%s, reps=%s, weight_kg=%s, notes=%s WHERE id=%s
+        rows = execute_query("""
+            UPDATE exercise_sets SET set_number=%s, reps=%s, weight_kg=%s, notes=%s
+            WHERE id=%s AND user_id=%s
+            RETURNING id
         """, (data['set_number'], data.get('reps'), data.get('weight_kg'),
-               data.get('notes'), data['id']), fetch=False)
+               data.get('notes'), data['id'], user_id))
+        if not rows:
+            raise PermissionError("Série não encontrada.")
     else:
+        owner = execute_query(
+            "SELECT id FROM exercises WHERE id=%s AND user_id=%s",
+            (data['exercise_id'], user_id),
+        )
+        if not owner:
+            raise PermissionError("Exercício não encontrado.")
         execute_query("""
-            INSERT INTO exercise_sets (exercise_id, set_number, reps, weight_kg, notes)
-            VALUES (%s,%s,%s,%s,%s)
+            INSERT INTO exercise_sets (exercise_id, set_number, reps, weight_kg, notes, user_id)
+            VALUES (%s,%s,%s,%s,%s,%s)
         """, (data['exercise_id'], data['set_number'], data.get('reps'),
-               data.get('weight_kg'), data.get('notes')), fetch=False)
+               data.get('weight_kg'), data.get('notes'), user_id), fetch=False)
 
 
-def delete_exercise_set(set_id: int):
-    execute_query("DELETE FROM exercise_sets WHERE id=%s", (set_id,), fetch=False)
+def delete_exercise_set(user_id: int, set_id: int):
+    rows = execute_query(
+        "DELETE FROM exercise_sets WHERE id=%s AND user_id=%s RETURNING id",
+        (set_id, user_id),
+    )
+    if not rows:
+        raise PermissionError("Série não encontrada.")
 
 
 SET_EDITABLE_FIELDS = {"set_number", "reps", "weight_kg", "notes"}
@@ -143,7 +196,7 @@ def _safe_float(val, default=0.0):
         return default
 
 
-def update_set_field(set_id: int, field: str, value):
+def update_set_field(user_id: int, set_id: int, field: str, value):
     if field not in SET_EDITABLE_FIELDS:
         raise ValueError(f"Campo não editável: {field}")
     if field in ("set_number", "reps"):
@@ -155,50 +208,58 @@ def update_set_field(set_id: int, field: str, value):
         value = _safe_float(value, None)
     else:
         value = (value or "").strip() or None
-    execute_query(f"UPDATE exercise_sets SET {field}=%s WHERE id=%s", (value, set_id), fetch=False)
+    rows = execute_query(
+        f"UPDATE exercise_sets SET {field}=%s WHERE id=%s AND user_id=%s RETURNING id",
+        (value, set_id, user_id),
+    )
+    if not rows:
+        raise PermissionError("Série não encontrada.")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # MUSCULAÇÃO — LOG DE TREINO (HISTÓRICO)
 # ══════════════════════════════════════════════════════════════════════════════
 
-def get_workout_log(exercise_id: int, log_date: date = None) -> pd.DataFrame:
+def get_workout_log(user_id: int, exercise_id: int, log_date: date = None) -> pd.DataFrame:
     if log_date:
         rows = execute_query("""
-            SELECT * FROM workout_logs WHERE exercise_id=%s AND log_date=%s ORDER BY set_number
-        """, (exercise_id, log_date))
+            SELECT * FROM workout_logs WHERE exercise_id=%s AND log_date=%s AND user_id=%s ORDER BY set_number
+        """, (exercise_id, log_date, user_id))
     else:
         rows = execute_query("""
-            SELECT * FROM workout_logs WHERE exercise_id=%s ORDER BY log_date DESC, set_number
+            SELECT * FROM workout_logs WHERE exercise_id=%s AND user_id=%s ORDER BY log_date DESC, set_number
             LIMIT 50
-        """, (exercise_id,))
+        """, (exercise_id, user_id))
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
 
-def get_weight_history(exercise_id: int) -> pd.DataFrame:
+def get_weight_history(user_id: int, exercise_id: int) -> pd.DataFrame:
     """Histórico de carga máxima por dia para evolução."""
     rows = execute_query("""
         SELECT log_date, MAX(weight_done) AS max_weight, MAX(reps_done) AS max_reps
-        FROM workout_logs WHERE exercise_id=%s
+        FROM workout_logs WHERE exercise_id=%s AND user_id=%s
         GROUP BY log_date ORDER BY log_date DESC LIMIT 30
-    """, (exercise_id,))
+    """, (exercise_id, user_id))
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
 
-def save_workout_log(exercise_id: int, log_date: date, sets: list):
+def save_workout_log(user_id: int, exercise_id: int, log_date: date, sets: list):
     """Salva log de treino — substitui registros do dia se existirem."""
-    execute_query("DELETE FROM workout_logs WHERE exercise_id=%s AND log_date=%s",
-                  (exercise_id, log_date), fetch=False)
+    owner = execute_query("SELECT id FROM exercises WHERE id=%s AND user_id=%s", (exercise_id, user_id))
+    if not owner:
+        raise PermissionError("Exercício não encontrado.")
+    execute_query("DELETE FROM workout_logs WHERE exercise_id=%s AND log_date=%s AND user_id=%s",
+                  (exercise_id, log_date, user_id), fetch=False)
     with db_cursor() as cur:
         for s in sets:
             cur.execute("""
-                INSERT INTO workout_logs (exercise_id, set_number, reps_done, weight_done, log_date)
-                VALUES (%s,%s,%s,%s,%s)
-            """, (exercise_id, s['set_number'], s.get('reps_done'), s.get('weight_done'), log_date))
+                INSERT INTO workout_logs (exercise_id, set_number, reps_done, weight_done, log_date, user_id)
+                VALUES (%s,%s,%s,%s,%s,%s)
+            """, (exercise_id, s['set_number'], s.get('reps_done'), s.get('weight_done'), log_date, user_id))
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# NUTRIÇÃO — ALIMENTOS
+# NUTRIÇÃO — ALIMENTOS (base compartilhada entre todos os usuários — SEM user_id)
 # ══════════════════════════════════════════════════════════════════════════════
 
 def get_foods(search: str = None) -> pd.DataFrame:
@@ -249,37 +310,44 @@ def update_food_field(food_id: int, field: str, value):
 # NUTRIÇÃO — REFEIÇÕES
 # ══════════════════════════════════════════════════════════════════════════════
 
-def get_meals(meal_date: date) -> pd.DataFrame:
+def get_meals(user_id: int, meal_date: date) -> pd.DataFrame:
     rows = execute_query("""
-        SELECT * FROM meals WHERE meal_date=%s ORDER BY meal_time NULLS LAST, name
-    """, (meal_date,))
+        SELECT * FROM meals WHERE meal_date=%s AND user_id=%s ORDER BY meal_time NULLS LAST, name
+    """, (meal_date, user_id))
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
 
-def upsert_meal(data: dict):
+def upsert_meal(user_id: int, data: dict):
     if data.get('id'):
-        execute_query("""
-            UPDATE meals SET name=%s, meal_time=%s, notes=%s WHERE id=%s
-        """, (data['name'], data.get('meal_time'), data.get('notes'), data['id']), fetch=False)
+        rows = execute_query("""
+            UPDATE meals SET name=%s, meal_time=%s, notes=%s WHERE id=%s AND user_id=%s RETURNING id
+        """, (data['name'], data.get('meal_time'), data.get('notes'), data['id'], user_id))
+        if not rows:
+            raise PermissionError("Refeição não encontrada.")
         return data['id']
     else:
         rows = execute_query("""
-            INSERT INTO meals (name, meal_time, meal_date, notes)
-            VALUES (%s,%s,%s,%s) RETURNING id
+            INSERT INTO meals (name, meal_time, meal_date, notes, user_id)
+            VALUES (%s,%s,%s,%s,%s) RETURNING id
         """, (data['name'], data.get('meal_time'), data.get('meal_date', date.today()),
-               data.get('notes')))
+               data.get('notes'), user_id))
         return rows[0]['id'] if rows else None
 
 
-def delete_meal(meal_id: int):
-    execute_query("DELETE FROM meals WHERE id=%s", (meal_id,), fetch=False)
+def delete_meal(user_id: int, meal_id: int):
+    rows = execute_query(
+        "DELETE FROM meals WHERE id=%s AND user_id=%s RETURNING id",
+        (meal_id, user_id),
+    )
+    if not rows:
+        raise PermissionError("Refeição não encontrada.")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # NUTRIÇÃO — ITENS DA REFEIÇÃO
 # ══════════════════════════════════════════════════════════════════════════════
 
-def get_meal_items(meal_id: int) -> pd.DataFrame:
+def get_meal_items(user_id: int, meal_id: int) -> pd.DataFrame:
     rows = execute_query("""
         SELECT mi.*, f.name AS food_name, f.preparation,
                f.protein_g, f.carbs_g, f.fat_g,
@@ -288,27 +356,35 @@ def get_meal_items(meal_id: int) -> pd.DataFrame:
                ROUND(f.fat_g     * mi.quantity_g / 100, 1) AS item_fat,
                ROUND((f.protein_g*4 + f.carbs_g*4 + f.fat_g*9) * mi.quantity_g / 100, 0) AS item_kcal
         FROM meal_items mi JOIN foods f ON mi.food_id=f.id
-        WHERE mi.meal_id=%s ORDER BY mi.id
-    """, (meal_id,))
+        WHERE mi.meal_id=%s AND mi.user_id=%s ORDER BY mi.id
+    """, (meal_id, user_id))
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
 
-def add_meal_item(meal_id: int, food_id: int, quantity_g: float):
+def add_meal_item(user_id: int, meal_id: int, food_id: int, quantity_g: float):
+    owner = execute_query("SELECT id FROM meals WHERE id=%s AND user_id=%s", (meal_id, user_id))
+    if not owner:
+        raise PermissionError("Refeição não encontrada.")
     execute_query("""
-        INSERT INTO meal_items (meal_id, food_id, quantity_g)
-        VALUES (%s,%s,%s)
-    """, (meal_id, food_id, quantity_g), fetch=False)
+        INSERT INTO meal_items (meal_id, food_id, quantity_g, user_id)
+        VALUES (%s,%s,%s,%s)
+    """, (meal_id, food_id, quantity_g, user_id), fetch=False)
 
 
-def delete_meal_item(item_id: int):
-    execute_query("DELETE FROM meal_items WHERE id=%s", (item_id,), fetch=False)
+def delete_meal_item(user_id: int, item_id: int):
+    rows = execute_query(
+        "DELETE FROM meal_items WHERE id=%s AND user_id=%s RETURNING id",
+        (item_id, user_id),
+    )
+    if not rows:
+        raise PermissionError("Item não encontrado.")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # NUTRIÇÃO — RESUMO DO DIA
 # ══════════════════════════════════════════════════════════════════════════════
 
-def get_daily_totals(meal_date: date) -> dict:
+def get_daily_totals(user_id: int, meal_date: date) -> dict:
     rows = execute_query("""
         SELECT
             COALESCE(SUM(ROUND(f.protein_g * mi.quantity_g / 100, 1)), 0) AS total_protein,
@@ -318,8 +394,8 @@ def get_daily_totals(meal_date: date) -> dict:
         FROM meal_items mi
         JOIN foods f  ON mi.food_id  = f.id
         JOIN meals m  ON mi.meal_id  = m.id
-        WHERE m.meal_date = %s
-    """, (meal_date,))
+        WHERE m.meal_date = %s AND mi.user_id = %s
+    """, (meal_date, user_id))
     return dict(rows[0]) if rows else {'total_protein': 0, 'total_carbs': 0, 'total_fat': 0, 'total_kcal': 0}
 
 
@@ -327,23 +403,23 @@ def get_daily_totals(meal_date: date) -> dict:
 # NUTRIÇÃO — METAS DE MACROS
 # ══════════════════════════════════════════════════════════════════════════════
 
-def get_macro_goals() -> dict:
-    rows = execute_query("SELECT * FROM macro_goals ORDER BY id DESC LIMIT 1")
+def get_macro_goals(user_id: int) -> dict:
+    rows = execute_query("SELECT * FROM macro_goals WHERE user_id=%s ORDER BY id DESC LIMIT 1", (user_id,))
     if rows:
         return dict(rows[0])
     return {'protein_g': 150, 'carbs_g': 250, 'fat_g': 60, 'goal_kcal': 2000}
 
 
-def save_macro_goals(protein_g: float, carbs_g: float, fat_g: float, goal_kcal: float):
-    execute_query("DELETE FROM macro_goals", fetch=False)
+def save_macro_goals(user_id: int, protein_g: float, carbs_g: float, fat_g: float, goal_kcal: float):
+    execute_query("DELETE FROM macro_goals WHERE user_id=%s", (user_id,), fetch=False)
     execute_query("""
-        INSERT INTO macro_goals (protein_g, carbs_g, fat_g, goal_kcal)
-        VALUES (%s,%s,%s,%s)
-    """, (protein_g, carbs_g, fat_g, goal_kcal), fetch=False)
+        INSERT INTO macro_goals (protein_g, carbs_g, fat_g, goal_kcal, user_id)
+        VALUES (%s,%s,%s,%s,%s)
+    """, (protein_g, carbs_g, fat_g, goal_kcal, user_id), fetch=False)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# SEED — BASE DE ALIMENTOS PRÉ-CARREGADA
+# SEED — BASE DE ALIMENTOS PRÉ-CARREGADA (global, compartilhada)
 # ══════════════════════════════════════════════════════════════════════════════
 
 FOODS_SEED = [

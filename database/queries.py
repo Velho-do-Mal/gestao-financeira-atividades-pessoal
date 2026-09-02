@@ -8,6 +8,20 @@ CORREÇÕES v2:
   - update_transaction: seta is_forecast=False quando status='Pago' (corrige inconsistência)
   - Adicionadas: get_all_subcategories(), delete_recurrence_group(), get_all_bank_balances()
   - current_balance calculado dinamicamente (não depende mais da coluna desatualizada)
+
+MULTIUSUÁRIO (v3):
+  - Toda função agora recebe `user_id` como 1º parâmetro e filtra/estampa esse
+    valor em toda leitura e escrita — cada usuário só enxerga e só consegue
+    alterar os próprios dados (ver database/migrations_users.py).
+  - Funções de UPDATE/DELETE por id usam `WHERE id=%s AND user_id=%s` com
+    `RETURNING id`: se o id pertence a outro usuário, 0 linhas voltam e a
+    função levanta PermissionError — em vez de silenciosamente não fazer nada
+    ou (pior) alterar um registro de outro usuário.
+  - As funções antigas de METAS/ORÇAMENTO (get_goals/upsert_goal/delete_goal,
+    get_budget/upsert_budget) foram removidas daqui: eram código morto no app
+    Flask (só a versão Streamlit legada em pages/ as usava) — o módulo Metas
+    real usa database/queries_metas.py. get_today_activities também saiu
+    (duplicata de database/queries_digest.py, que é a usada de fato).
 """
 
 import pandas as pd
@@ -35,8 +49,8 @@ def clear_data_cache():
 # DASHBOARD / HOME
 # ══════════════════════════════════════════════════════════════════════════════
 
-def get_home_summary() -> dict:
-    """Retorna indicadores para o painel Home."""
+def get_home_summary(user_id: int) -> dict:
+    """Retorna indicadores para o painel Home (só do usuário logado)."""
     rows = execute_query("""
         SELECT
             COALESCE(SUM(CASE WHEN flow_type='Saída'  AND status='Não pago' AND due_date < CURRENT_DATE  THEN total_value END), 0) AS overdue,
@@ -45,13 +59,14 @@ def get_home_summary() -> dict:
             COALESCE(SUM(CASE WHEN flow_type='Entrada' AND status='Pago'    AND payment_date = CURRENT_DATE THEN total_value END), 0) AS income_today,
             COALESCE(SUM(CASE WHEN flow_type='Saída'  AND status='Pago'    AND payment_date = CURRENT_DATE THEN total_value END), 0) AS expense_today
         FROM transactions
-    """)
+        WHERE user_id = %s
+    """, (user_id,))
     r = dict(rows[0]) if rows else {}
     r['balance_today'] = r.get('income_today', 0) - r.get('expense_today', 0)
     return r
 
 
-def get_cashflow_chart_data(months: int = 6) -> pd.DataFrame:
+def get_cashflow_chart_data(user_id: int, months: int = 6) -> pd.DataFrame:
     """Dados do gráfico de barras + linha para os últimos N meses.
     CORREÇÃO: usa aritmética de data Python em vez de INTERVAL '%s months'.
     """
@@ -62,10 +77,10 @@ def get_cashflow_chart_data(months: int = 6) -> pd.DataFrame:
             SUM(CASE WHEN flow_type='Entrada' AND status='Pago' THEN total_value ELSE 0 END) AS income,
             SUM(CASE WHEN flow_type='Saída'  AND status='Pago' THEN total_value ELSE 0 END) AS expense
         FROM transactions
-        WHERE due_date >= %s
+        WHERE due_date >= %s AND user_id = %s
         GROUP BY 1
         ORDER BY 1
-    """, (start,))
+    """, (start, user_id))
     df = pd.DataFrame(rows) if rows else pd.DataFrame(columns=['month', 'income', 'expense'])
     if not df.empty:
         df['balance']     = df['income'] - df['expense']
@@ -73,112 +88,131 @@ def get_cashflow_chart_data(months: int = 6) -> pd.DataFrame:
     return df
 
 
-def get_today_activities() -> pd.DataFrame:
-    """Atividades que vencem hoje, ordenadas por prioridade."""
-    rows = execute_query("""
-        SELECT id, title, priority, status, end_date, parent_id
-        FROM activities
-        WHERE end_date = CURRENT_DATE AND status != 'Concluído'
-        ORDER BY
-            CASE priority
-                WHEN 'Urgente-Urgente'           THEN 1
-                WHEN 'Importante-Urgente'        THEN 2
-                WHEN 'Importante não Urgente'    THEN 3
-                WHEN 'Não importante-Não urgente' THEN 4
-            END,
-            title
-    """)
-    return pd.DataFrame(rows) if rows else pd.DataFrame()
-
-
 # ══════════════════════════════════════════════════════════════════════════════
 # FORNECEDORES
 # ══════════════════════════════════════════════════════════════════════════════
 
-def get_suppliers() -> pd.DataFrame:
-    rows = execute_query("SELECT * FROM suppliers WHERE active=TRUE ORDER BY name")
+def get_suppliers(user_id: int) -> pd.DataFrame:
+    rows = execute_query(
+        "SELECT * FROM suppliers WHERE active=TRUE AND user_id=%s ORDER BY name",
+        (user_id,),
+    )
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
 
-def upsert_supplier(data: dict):
+def upsert_supplier(user_id: int, data: dict):
     if data.get('id'):
-        execute_query("""
+        rows = execute_query("""
             UPDATE suppliers SET name=%s, document=%s, email=%s, phone=%s,
-            address=%s, notes=%s, updated_at=NOW() WHERE id=%s
+            address=%s, notes=%s, updated_at=NOW()
+            WHERE id=%s AND user_id=%s
+            RETURNING id
         """, (data['name'], data.get('document'), data.get('email'), data.get('phone'),
-               data.get('address'), data.get('notes'), data['id']), fetch=False)
+               data.get('address'), data.get('notes'), data['id'], user_id))
+        if not rows:
+            raise PermissionError("Fornecedor não encontrado.")
     else:
         execute_query("""
-            INSERT INTO suppliers (name, document, email, phone, address, notes)
-            VALUES (%s,%s,%s,%s,%s,%s)
+            INSERT INTO suppliers (name, document, email, phone, address, notes, user_id)
+            VALUES (%s,%s,%s,%s,%s,%s,%s)
         """, (data['name'], data.get('document'), data.get('email'), data.get('phone'),
-               data.get('address'), data.get('notes')), fetch=False)
+               data.get('address'), data.get('notes'), user_id), fetch=False)
 
 
-def delete_supplier(supplier_id: int):
-    execute_query("UPDATE suppliers SET active=FALSE WHERE id=%s", (supplier_id,), fetch=False)
+def delete_supplier(user_id: int, supplier_id: int):
+    rows = execute_query(
+        "UPDATE suppliers SET active=FALSE WHERE id=%s AND user_id=%s RETURNING id",
+        (supplier_id, user_id),
+    )
+    if not rows:
+        raise PermissionError("Fornecedor não encontrado.")
 
 
 SUPPLIER_EDITABLE_FIELDS = {"name", "document", "email", "phone", "address", "notes"}
 
 
-def update_supplier_field(supplier_id: int, field: str, value):
+def update_supplier_field(user_id: int, supplier_id: int, field: str, value):
     if field not in SUPPLIER_EDITABLE_FIELDS:
         raise ValueError(f"Campo não editável: {field}")
     value = (value or "").strip() or None
-    execute_query(
-        f"UPDATE suppliers SET {field}=%s, updated_at=NOW() WHERE id=%s",
-        (value, supplier_id), fetch=False,
+    rows = execute_query(
+        f"UPDATE suppliers SET {field}=%s, updated_at=NOW() WHERE id=%s AND user_id=%s RETURNING id",
+        (value, supplier_id, user_id),
     )
+    if not rows:
+        raise PermissionError("Fornecedor não encontrado.")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # CATEGORIAS / SUBCATEGORIAS
 # ══════════════════════════════════════════════════════════════════════════════
 
-def get_categories(flow_type: Optional[str] = None) -> pd.DataFrame:
+def get_categories(user_id: int, flow_type: Optional[str] = None) -> pd.DataFrame:
     if flow_type and flow_type != 'Todos':
         rows = execute_query("""
-            SELECT * FROM categories WHERE active=TRUE
+            SELECT * FROM categories WHERE active=TRUE AND user_id=%s
             AND (flow_type=%s OR flow_type='Ambos') ORDER BY name
-        """, (flow_type,))
+        """, (user_id, flow_type))
     else:
-        rows = execute_query("SELECT * FROM categories WHERE active=TRUE ORDER BY flow_type, name")
+        rows = execute_query(
+            "SELECT * FROM categories WHERE active=TRUE AND user_id=%s ORDER BY flow_type, name",
+            (user_id,),
+        )
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
 
-def get_subcategories(category_id: int) -> pd.DataFrame:
+def get_subcategories(user_id: int, category_id: int) -> pd.DataFrame:
     rows = execute_query("""
-        SELECT * FROM subcategories WHERE category_id=%s AND active=TRUE ORDER BY name
-    """, (category_id,))
+        SELECT s.* FROM subcategories s
+        JOIN categories c ON s.category_id = c.id
+        WHERE s.category_id=%s AND s.active=TRUE AND c.user_id=%s
+        ORDER BY s.name
+    """, (category_id, user_id))
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
 
-def get_all_subcategories() -> pd.DataFrame:
+def get_all_subcategories(user_id: int) -> pd.DataFrame:
     """
-    Retorna TODAS as subcategorias ativas de uma vez.
+    Retorna TODAS as subcategorias ativas do usuário de uma vez.
     Usar no lugar de get_subcategories() dentro de loops para evitar N queries.
     """
     rows = execute_query("""
-        SELECT * FROM subcategories WHERE active=TRUE ORDER BY category_id, name
-    """)
+        SELECT s.* FROM subcategories s
+        JOIN categories c ON s.category_id = c.id
+        WHERE s.active=TRUE AND c.user_id=%s
+        ORDER BY s.category_id, s.name
+    """, (user_id,))
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
 
-def upsert_category(flow_type: str, name: str, cat_id: int = None):
+def upsert_category(user_id: int, flow_type: str, name: str, cat_id: int = None):
     if cat_id:
-        execute_query("UPDATE categories SET flow_type=%s, name=%s WHERE id=%s",
-                      (flow_type, name, cat_id), fetch=False)
+        rows = execute_query(
+            "UPDATE categories SET flow_type=%s, name=%s WHERE id=%s AND user_id=%s RETURNING id",
+            (flow_type, name, cat_id, user_id),
+        )
+        if not rows:
+            raise PermissionError("Categoria não encontrada.")
     else:
         execute_query("""
-            INSERT INTO categories (flow_type, name) VALUES (%s,%s)
-            ON CONFLICT (flow_type, name) DO UPDATE SET flow_type=EXCLUDED.flow_type
-        """, (flow_type, name), fetch=False)
+            INSERT INTO categories (flow_type, name, user_id) VALUES (%s,%s,%s)
+            ON CONFLICT (user_id, flow_type, name) DO UPDATE SET flow_type=EXCLUDED.flow_type
+        """, (flow_type, name, user_id), fetch=False)
 
 
-def upsert_subcategory(category_id: int, name: str, sub_id: int = None):
+def upsert_subcategory(user_id: int, category_id: int, name: str, sub_id: int = None):
+    # Garante que a categoria-pai pertence ao usuário antes de criar/editar.
+    owner = execute_query("SELECT id FROM categories WHERE id=%s AND user_id=%s", (category_id, user_id))
+    if not owner:
+        raise PermissionError("Categoria não encontrada.")
     if sub_id:
-        execute_query("UPDATE subcategories SET name=%s WHERE id=%s", (name, sub_id), fetch=False)
+        rows = execute_query("""
+            UPDATE subcategories SET name=%s
+            WHERE id=%s AND category_id=%s
+            RETURNING id
+        """, (name, sub_id, category_id))
+        if not rows:
+            raise PermissionError("Subcategoria não encontrada.")
     else:
         execute_query("""
             INSERT INTO subcategories (category_id, name) VALUES (%s,%s)
@@ -186,42 +220,69 @@ def upsert_subcategory(category_id: int, name: str, sub_id: int = None):
         """, (category_id, name), fetch=False)
 
 
-def delete_category(cat_id: int):
-    execute_query("UPDATE categories SET active=FALSE WHERE id=%s", (cat_id,), fetch=False)
+def delete_category(user_id: int, cat_id: int):
+    rows = execute_query(
+        "UPDATE categories SET active=FALSE WHERE id=%s AND user_id=%s RETURNING id",
+        (cat_id, user_id),
+    )
+    if not rows:
+        raise PermissionError("Categoria não encontrada.")
 
 
-def delete_subcategory(sub_id: int):
-    execute_query("UPDATE subcategories SET active=FALSE WHERE id=%s", (sub_id,), fetch=False)
+def delete_subcategory(user_id: int, sub_id: int):
+    rows = execute_query("""
+        UPDATE subcategories s SET active=FALSE
+        FROM categories c
+        WHERE s.id=%s AND s.category_id=c.id AND c.user_id=%s
+        RETURNING s.id
+    """, (sub_id, user_id))
+    if not rows:
+        raise PermissionError("Subcategoria não encontrada.")
 
 
-def update_category_field(cat_id: int, field: str, value):
+def update_category_field(user_id: int, cat_id: int, field: str, value):
     if field not in {"name", "flow_type"}:
         raise ValueError(f"Campo não editável: {field}")
     value = (value or "").strip()
     if not value:
         raise ValueError("Nome não pode ficar em branco")
-    execute_query(f"UPDATE categories SET {field}=%s WHERE id=%s", (value, cat_id), fetch=False)
+    rows = execute_query(
+        f"UPDATE categories SET {field}=%s WHERE id=%s AND user_id=%s RETURNING id",
+        (value, cat_id, user_id),
+    )
+    if not rows:
+        raise PermissionError("Categoria não encontrada.")
 
 
-def update_subcategory_field(sub_id: int, field: str, value):
+def update_subcategory_field(user_id: int, sub_id: int, field: str, value):
     if field != "name":
         raise ValueError(f"Campo não editável: {field}")
     value = (value or "").strip()
     if not value:
         raise ValueError("Nome não pode ficar em branco")
-    execute_query("UPDATE subcategories SET name=%s WHERE id=%s", (value, sub_id), fetch=False)
+    rows = execute_query("""
+        UPDATE subcategories s SET name=%s
+        FROM categories c
+        WHERE s.id=%s AND s.category_id=c.id AND c.user_id=%s
+        RETURNING s.id
+    """, (value, sub_id, user_id))
+    if not rows:
+        raise PermissionError("Subcategoria não encontrada.")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # BANCOS
 # ══════════════════════════════════════════════════════════════════════════════
 
-def get_banks() -> pd.DataFrame:
-    rows = execute_query("SELECT * FROM banks WHERE active=TRUE ORDER BY name")
+def get_banks(user_id: int) -> pd.DataFrame:
+    rows = execute_query(
+        "SELECT * FROM banks WHERE active=TRUE AND user_id=%s ORDER BY name",
+        (user_id,),
+    )
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
 
-def get_all_bank_balances() -> pd.DataFrame:
+def get_all_bank_balances(user_id: int) -> pd.DataFrame:
     """
     Saldo atual calculado dinamicamente: saldo_inicial + entradas_pagas - saídas_pagas.
     CORREÇÃO: a coluna current_balance no banco nunca era atualizada; aqui calculamos na query.
@@ -235,48 +296,65 @@ def get_all_bank_balances() -> pd.DataFrame:
                 - COALESCE(SUM(CASE WHEN t.flow_type='Saída'   AND t.status='Pago' THEN t.total_value ELSE 0 END), 0)
             AS current_balance
         FROM banks b
-        LEFT JOIN transactions t ON t.bank_id = b.id
-        WHERE b.active = TRUE
+        LEFT JOIN transactions t ON t.bank_id = b.id AND t.user_id = b.user_id
+        WHERE b.active = TRUE AND b.user_id = %s
         GROUP BY b.id, b.name, b.account, b.agency, b.initial_balance
         ORDER BY b.name
-    """)
+    """, (user_id,))
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
 
-def get_total_initial_balance() -> float:
-    rows = execute_query("SELECT COALESCE(SUM(initial_balance),0) AS total FROM banks WHERE active=TRUE")
+def get_total_initial_balance(user_id: int) -> float:
+    rows = execute_query(
+        "SELECT COALESCE(SUM(initial_balance),0) AS total FROM banks WHERE active=TRUE AND user_id=%s",
+        (user_id,),
+    )
     return float(rows[0]['total']) if rows else 0.0
 
 
-def upsert_bank(data: dict):
+def upsert_bank(user_id: int, data: dict):
     if data.get('id'):
-        execute_query("""
-            UPDATE banks SET name=%s, account=%s, agency=%s, initial_balance=%s WHERE id=%s
+        rows = execute_query("""
+            UPDATE banks SET name=%s, account=%s, agency=%s, initial_balance=%s
+            WHERE id=%s AND user_id=%s
+            RETURNING id
         """, (data['name'], data.get('account'), data.get('agency'),
-               data.get('initial_balance', 0), data['id']), fetch=False)
+               data.get('initial_balance', 0), data['id'], user_id))
+        if not rows:
+            raise PermissionError("Banco não encontrado.")
     else:
         execute_query("""
-            INSERT INTO banks (name, account, agency, initial_balance, current_balance)
-            VALUES (%s,%s,%s,%s,%s)
+            INSERT INTO banks (name, account, agency, initial_balance, current_balance, user_id)
+            VALUES (%s,%s,%s,%s,%s,%s)
         """, (data['name'], data.get('account'), data.get('agency'),
-               data.get('initial_balance', 0), data.get('initial_balance', 0)), fetch=False)
+               data.get('initial_balance', 0), data.get('initial_balance', 0), user_id), fetch=False)
 
 
-def delete_bank(bank_id: int):
-    execute_query("UPDATE banks SET active=FALSE WHERE id=%s", (bank_id,), fetch=False)
+def delete_bank(user_id: int, bank_id: int):
+    rows = execute_query(
+        "UPDATE banks SET active=FALSE WHERE id=%s AND user_id=%s RETURNING id",
+        (bank_id, user_id),
+    )
+    if not rows:
+        raise PermissionError("Banco não encontrado.")
 
 
 BANK_EDITABLE_FIELDS = {"name", "account", "agency", "initial_balance"}
 
 
-def update_bank_field(bank_id: int, field: str, value):
+def update_bank_field(user_id: int, bank_id: int, field: str, value):
     if field not in BANK_EDITABLE_FIELDS:
         raise ValueError(f"Campo não editável: {field}")
     if field == "initial_balance":
         value = _safe_float(value, 0.0)
     else:
         value = (value or "").strip() or None
-    execute_query(f"UPDATE banks SET {field}=%s WHERE id=%s", (value, bank_id), fetch=False)
+    rows = execute_query(
+        f"UPDATE banks SET {field}=%s WHERE id=%s AND user_id=%s RETURNING id",
+        (value, bank_id, user_id),
+    )
+    if not rows:
+        raise PermissionError("Banco não encontrado.")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -284,15 +362,16 @@ def update_bank_field(bank_id: int, field: str, value):
 # ══════════════════════════════════════════════════════════════════════════════
 
 def get_transactions(
+    user_id: int,
     start_date=None, end_date=None,
     status=None, flow_type=None, is_forecast=None,
 ) -> pd.DataFrame:
     """
-    Retorna transações com joins de categoria, subcategoria, fornecedor e banco.
-    PERFORMANCE: resultado cacheado por 2 minutos. Chame clear_data_cache() após writes.
+    Retorna transações do usuário logado, com joins de categoria, subcategoria,
+    fornecedor e banco.
     """
-    conditions = ["1=1"]
-    params = []
+    conditions = ["t.user_id = %s"]
+    params = [user_id]
     if start_date:
         conditions.append("t.due_date >= %s"); params.append(start_date)
     if end_date:
@@ -328,7 +407,7 @@ def get_transactions(
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
 
-def insert_transaction(data: dict, recurrence_months: int = 0):
+def insert_transaction(user_id: int, data: dict, recurrence_months: int = 0):
     """Insere movimentação, criando recorrências se necessário."""
     group_id = str(uuid.uuid4()) if data.get('is_recurrent') else None
 
@@ -357,8 +436,8 @@ def insert_transaction(data: dict, recurrence_months: int = 0):
                 INSERT INTO transactions
                 (flow_type, category_id, subcategory_id, supplier_id, bank_id,
                  description, value, interest, due_date, status,
-                 is_recurrent, recurrence_type, recurrence_group_id, notes, is_forecast)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                 is_recurrent, recurrence_type, recurrence_group_id, notes, is_forecast, user_id)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             """, (
                 rec_data['flow_type'],
                 rec_data.get('category_id'),
@@ -375,6 +454,7 @@ def insert_transaction(data: dict, recurrence_months: int = 0):
                 group_id,
                 rec_data.get('notes'),
                 rec_data.get('is_forecast', True),
+                user_id,
             ))
 
 
@@ -389,18 +469,19 @@ def _safe_date(v):
     return v
 
 
-def update_transaction(transaction_id: int, data: dict):
+def update_transaction(user_id: int, transaction_id: int, data: dict):
     """
     Atualiza movimentação.
     FIX: suporta bank_id + datas seguras (None/NaT nunca chegam ao banco como string).
     """
     is_forecast = False if data.get('status') == 'Pago' else data.get('is_forecast', True)
-    execute_query("""
+    rows = execute_query("""
         UPDATE transactions
         SET flow_type=%s, category_id=%s, subcategory_id=%s, bank_id=%s,
             value=%s, interest=%s, due_date=%s, status=%s, payment_date=%s,
             description=%s, is_forecast=%s, updated_at=NOW()
-        WHERE id=%s
+        WHERE id=%s AND user_id=%s
+        RETURNING id
     """, (
         data['flow_type'], data.get('category_id'), data.get('subcategory_id'),
         data.get('bank_id'),
@@ -408,12 +489,19 @@ def update_transaction(transaction_id: int, data: dict):
         _safe_date(data.get('due_date')),
         data.get('status', 'Não pago'),
         _safe_date(data.get('payment_date')),
-        data.get('description'), is_forecast, transaction_id,
-    ), fetch=False)
+        data.get('description'), is_forecast, transaction_id, user_id,
+    ))
+    if not rows:
+        raise PermissionError("Movimentação não encontrada.")
 
 
-def delete_transaction(transaction_id: int):
-    execute_query("DELETE FROM transactions WHERE id=%s", (transaction_id,), fetch=False)
+def delete_transaction(user_id: int, transaction_id: int):
+    rows = execute_query(
+        "DELETE FROM transactions WHERE id=%s AND user_id=%s RETURNING id",
+        (transaction_id, user_id),
+    )
+    if not rows:
+        raise PermissionError("Movimentação não encontrada.")
 
 
 def _safe_float(val, default=0.0):
@@ -432,7 +520,7 @@ TRANSACTION_EDITABLE_FIELDS = {
 }
 
 
-def update_transaction_field(transaction_id: int, field: str, value):
+def update_transaction_field(user_id: int, transaction_id: int, field: str, value):
     """Salva uma célula editada da tabela de Lançamentos (autosave).
     Ao editar 'status', mantém is_forecast coerente (Pago => False),
     igual já fazia update_transaction()."""
@@ -450,30 +538,34 @@ def update_transaction_field(transaction_id: int, field: str, value):
 
     if field == "status":
         is_forecast = False if value == "Pago" else True
-        execute_query(
-            "UPDATE transactions SET status=%s, is_forecast=%s, updated_at=NOW() WHERE id=%s",
-            (value, is_forecast, transaction_id), fetch=False,
+        rows = execute_query(
+            "UPDATE transactions SET status=%s, is_forecast=%s, updated_at=NOW() WHERE id=%s AND user_id=%s RETURNING id",
+            (value, is_forecast, transaction_id, user_id),
         )
+        if not rows:
+            raise PermissionError("Movimentação não encontrada.")
         return
 
+    rows = execute_query(
+        f"UPDATE transactions SET {field}=%s, updated_at=NOW() WHERE id=%s AND user_id=%s RETURNING id",
+        (value, transaction_id, user_id),
+    )
+    if not rows:
+        raise PermissionError("Movimentação não encontrada.")
+
+
+def delete_recurrence_group(user_id: int, group_id: str):
+    """
+    Exclui TODAS as transações pertencentes a um grupo de recorrência
+    (só as que forem do usuário logado).
+    """
     execute_query(
-        f"UPDATE transactions SET {field}=%s, updated_at=NOW() WHERE id=%s",
-        (value, transaction_id), fetch=False,
+        "DELETE FROM transactions WHERE recurrence_group_id::text = %s AND user_id=%s",
+        (str(group_id), user_id), fetch=False,
     )
 
 
-def delete_recurrence_group(group_id: str):
-    """
-    Exclui TODAS as transações pertencentes a um grupo de recorrência.
-    Novo em v2 — permite exclusão em lote pelo grupo.
-    """
-    execute_query(
-        "DELETE FROM transactions WHERE recurrence_group_id::text = %s",
-        (str(group_id),), fetch=False,
-    )
-
-
-def get_cashflow_planned_vs_actual(months: int = 24) -> pd.DataFrame:
+def get_cashflow_planned_vs_actual(user_id: int, months: int = 24) -> pd.DataFrame:
     """
     Retorna dados de previsto x realizado por mês.
     CORREÇÃO: usa aritmética Python em vez de INTERVAL '%s months'.
@@ -487,14 +579,14 @@ def get_cashflow_planned_vs_actual(months: int = 24) -> pd.DataFrame:
             is_forecast,
             SUM(total_value) AS total
         FROM transactions
-        WHERE due_date >= %s AND due_date < %s
+        WHERE due_date >= %s AND due_date < %s AND user_id = %s
         GROUP BY 1, 2, 3
         ORDER BY 1, 2
-    """, (start, end))
+    """, (start, end, user_id))
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
 
-def build_cashflow_pivot(is_forecast: bool, months: int = 12) -> tuple:
+def build_cashflow_pivot(user_id: int, is_forecast: bool, months: int = 12) -> tuple:
     """
     Tabela pivô de fluxo de caixa (categoria/subcategoria x mês), usada nas
     abas Previsto/Realizado/Diferença de Finanças → Movimentações.
@@ -508,9 +600,9 @@ def build_cashflow_pivot(is_forecast: bool, months: int = 12) -> tuple:
     period_start = month_dates[0]
     period_end = month_dates[-1] + relativedelta(months=1) - relativedelta(days=1)
 
-    df_cats = get_categories()
-    df_subs = get_all_subcategories()
-    df_all = get_transactions(start_date=period_start, end_date=period_end, is_forecast=is_forecast)
+    df_cats = get_categories(user_id)
+    df_subs = get_all_subcategories(user_id)
+    df_all = get_transactions(user_id, start_date=period_start, end_date=period_end, is_forecast=is_forecast)
 
     if df_cats.empty:
         return pd.DataFrame(), month_labels
@@ -553,79 +645,12 @@ def build_cashflow_pivot(is_forecast: bool, months: int = 12) -> tuple:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# METAS
+# ORÇAMENTO (só leitura aqui — CRUD de orçamento vive na versão Streamlit
+# legada, não usada pelo app Flask; get_budget_vs_actual é a única função
+# desta seção realmente chamada, pela Home)
 # ══════════════════════════════════════════════════════════════════════════════
 
-def get_goals() -> pd.DataFrame:
-    rows = execute_query("SELECT * FROM goals ORDER BY time_bound, title")
-    return pd.DataFrame(rows) if rows else pd.DataFrame()
-
-
-def upsert_goal(data: dict):
-    if data.get('id'):
-        execute_query("""
-            UPDATE goals SET title=%s, specific=%s, measurable=%s, achievable=%s,
-            relevant=%s, time_bound=%s, target_value=%s, current_value=%s, status=%s
-            WHERE id=%s
-        """, (data['title'], data.get('specific'), data.get('measurable'), data.get('achievable'),
-               data.get('relevant'), data.get('time_bound'), data.get('target_value', 0),
-               data.get('current_value', 0), data.get('status', 'Em andamento'), data['id']), fetch=False)
-    else:
-        execute_query("""
-            INSERT INTO goals (title, specific, measurable, achievable, relevant,
-            time_bound, target_value, current_value, status)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
-        """, (data['title'], data.get('specific'), data.get('measurable'), data.get('achievable'),
-               data.get('relevant'), data.get('time_bound'), data.get('target_value', 0),
-               data.get('current_value', 0), data.get('status', 'Em andamento')), fetch=False)
-
-
-def delete_goal(goal_id: int):
-    execute_query("DELETE FROM goals WHERE id=%s", (goal_id,), fetch=False)
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# ORÇAMENTO
-# ══════════════════════════════════════════════════════════════════════════════
-
-def get_budget(year_month: date) -> pd.DataFrame:
-    rows = execute_query("""
-        SELECT b.*, c.name AS category_name, c.flow_type, s.name AS subcategory_name
-        FROM budget b
-        JOIN categories c ON b.category_id = c.id
-        LEFT JOIN subcategories s ON b.subcategory_id = s.id
-        WHERE b.year_month = %s
-        ORDER BY c.flow_type, c.name, s.name
-    """, (year_month,))
-    return pd.DataFrame(rows) if rows else pd.DataFrame()
-
-
-def upsert_budget(category_id: int, subcategory_id: Optional[int], year_month: date, planned_value: float):
-    """
-    Upsert de orçamento usando os índices parciais NULL-safe (corrigido v2).
-    Para sub=NULL usa ON CONFLICT DO UPDATE pelo índice uniq_budget_no_sub.
-    """
-    if subcategory_id is None:
-        execute_query("""
-            INSERT INTO budget (category_id, subcategory_id, year_month, planned_value)
-            VALUES (%s, NULL, %s, %s)
-            ON CONFLICT ON CONSTRAINT budget_pkey DO NOTHING
-        """, (category_id, year_month, planned_value), fetch=False)
-        # Atualiza se já existir (índice parcial não suporta ON CONFLICT direto no INSERT)
-        execute_query("""
-            UPDATE budget SET planned_value=%s, updated_at=NOW()
-            WHERE category_id=%s AND subcategory_id IS NULL AND year_month=%s
-        """, (planned_value, category_id, year_month), fetch=False)
-    else:
-        execute_query("""
-            INSERT INTO budget (category_id, subcategory_id, year_month, planned_value)
-            VALUES (%s,%s,%s,%s)
-            ON CONFLICT (category_id, subcategory_id, year_month)
-            DO UPDATE SET planned_value=%s, updated_at=NOW()
-        """, (category_id, subcategory_id, year_month, planned_value, planned_value), fetch=False)
-
-
-def get_budget_vs_actual(year_month: date) -> pd.DataFrame:
+def get_budget_vs_actual(user_id: int, year_month: date) -> pd.DataFrame:
     rows = execute_query("""
         SELECT c.name AS category, c.flow_type,
                COALESCE(b.planned_value, 0) AS planned,
@@ -635,10 +660,11 @@ def get_budget_vs_actual(year_month: date) -> pd.DataFrame:
         LEFT JOIN transactions t ON t.category_id = c.id
             AND DATE_TRUNC('month', t.due_date) = %s
             AND t.status = 'Pago'
-        WHERE c.active = TRUE
+            AND t.user_id = %s
+        WHERE c.active = TRUE AND c.user_id = %s
         GROUP BY c.name, c.flow_type, b.planned_value
         ORDER BY c.flow_type, c.name
-    """, (year_month, year_month))
+    """, (year_month, year_month, user_id, user_id))
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
 
@@ -646,15 +672,16 @@ def get_budget_vs_actual(year_month: date) -> pd.DataFrame:
 # ATIVIDADES
 # ══════════════════════════════════════════════════════════════════════════════
 
-def get_activities(only_standalone: bool = False) -> pd.DataFrame:
-    """Lista atividades. Com only_standalone=True, exclui as vinculadas a uma
-    meta (goal_id preenchido) — essas são geridas dentro do módulo Metas."""
-    where = "WHERE goal_id IS NULL" if only_standalone else ""
+def get_activities(user_id: int, only_standalone: bool = False) -> pd.DataFrame:
+    """Lista atividades do usuário. Com only_standalone=True, exclui as
+    vinculadas a uma meta (goal_id preenchido) — essas são geridas dentro do
+    módulo Metas."""
+    where = "WHERE user_id=%s AND goal_id IS NULL" if only_standalone else "WHERE user_id=%s"
     rows = execute_query(f"""
         SELECT * FROM activities
         {where}
         ORDER BY COALESCE(parent_id, id), parent_id NULLS FIRST, order_index, title
-    """)
+    """, (user_id,))
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
 
@@ -678,7 +705,7 @@ def _safe_date(val):
         return None
 
 
-def upsert_activity(data: dict):
+def upsert_activity(user_id: int, data: dict):
     act_id      = _safe_int(data.get('id'))
     parent_id   = _safe_int(data.get('parent_id'))
     start_d     = _safe_date(data.get('start_date'))
@@ -694,51 +721,66 @@ def upsert_activity(data: dict):
 
     rec_group = data.get('recurrence_group_id') or None
 
+    # parent_id, se informado, precisa ser uma atividade do mesmo usuário.
+    if parent_id is not None:
+        owner = execute_query("SELECT id FROM activities WHERE id=%s AND user_id=%s", (parent_id, user_id))
+        if not owner:
+            raise PermissionError("Atividade-pai não encontrada.")
+
     if act_id:
-        execute_query("""
+        rows = execute_query("""
             UPDATE activities
             SET title=%s, description=%s, start_date=%s, end_date=%s,
                 priority=%s, status=%s, parent_id=%s,
                 start_time=%s, end_time=%s, event_color=%s, event_type=%s,
                 updated_at=NOW()
-            WHERE id=%s
+            WHERE id=%s AND user_id=%s
+            RETURNING id
         """, (title, desc, start_d, end_d, priority, status, parent_id,
-              start_time, end_time, event_color, event_type, act_id), fetch=False)
+              start_time, end_time, event_color, event_type, act_id, user_id))
+        if not rows:
+            raise PermissionError("Atividade não encontrada.")
     else:
         rows = execute_query("""
             INSERT INTO activities
                 (title, description, start_date, end_date, priority, status, parent_id,
-                 start_time, end_time, event_color, event_type, recurrence_group_id)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id
+                 start_time, end_time, event_color, event_type, recurrence_group_id, user_id)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id
         """, (title, desc, start_d, end_d, priority, status, parent_id,
-              start_time, end_time, event_color, event_type, rec_group))
+              start_time, end_time, event_color, event_type, rec_group, user_id))
         return rows[0]['id'] if rows else None
 
 
-def delete_activity(activity_id: int):
+def delete_activity(user_id: int, activity_id: int):
     """Exclui atividade e todos os seus filhos (ON DELETE CASCADE garante netos também)."""
-    execute_query("DELETE FROM activities WHERE id=%s", (activity_id,), fetch=False)
+    rows = execute_query(
+        "DELETE FROM activities WHERE id=%s AND user_id=%s RETURNING id",
+        (activity_id, user_id),
+    )
+    if not rows:
+        raise PermissionError("Atividade não encontrada.")
 
 
-def delete_recurrence_group_activities(group_id: str):
-    """Exclui todas as ocorrências de uma série recorrente."""
+def delete_recurrence_group_activities(user_id: int, group_id: str):
+    """Exclui todas as ocorrências de uma série recorrente (só do usuário logado)."""
     execute_query(
-        "DELETE FROM activities WHERE recurrence_group_id::text = %s",
-        (str(group_id),), fetch=False,
+        "DELETE FROM activities WHERE recurrence_group_id::text = %s AND user_id=%s",
+        (str(group_id), user_id), fetch=False,
     )
 
 
-def get_calendar_events(start_date, end_date) -> pd.DataFrame:
+def get_calendar_events(user_id: int, start_date, end_date) -> pd.DataFrame:
     """
-    Retorna atividades com start_time definido (eventos de calendário)
-    dentro do intervalo de datas. Sincronizado bidirecionalmente com a tabela.
+    Retorna atividades do usuário com start_time definido (eventos de
+    calendário) dentro do intervalo de datas.
     """
     rows = execute_query("""
         SELECT * FROM activities
         WHERE start_date BETWEEN %s AND %s
           AND start_time IS NOT NULL
+          AND user_id = %s
         ORDER BY start_date, start_time
-    """, (start_date, end_date))
+    """, (start_date, end_date, user_id))
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
 
@@ -746,40 +788,55 @@ def get_calendar_events(start_date, end_date) -> pd.DataFrame:
 # PLANO DE AÇÃO (5W2H)
 # ══════════════════════════════════════════════════════════════════════════════
 
-def get_action_plans(only_standalone: bool = False) -> pd.DataFrame:
-    """Lista itens do plano 5W2H. Com only_standalone=True, exclui os das
-    atividades vinculadas a uma meta (geridos dentro do módulo Metas)."""
-    where = "WHERE a.goal_id IS NULL" if only_standalone else ""
+def get_action_plans(user_id: int, only_standalone: bool = False) -> pd.DataFrame:
+    """Lista itens do plano 5W2H do usuário. Com only_standalone=True, exclui
+    os das atividades vinculadas a uma meta (geridos dentro do módulo Metas)."""
+    extra = "AND a.goal_id IS NULL" if only_standalone else ""
     rows = execute_query(f"""
         SELECT ap.*, a.title AS activity_title
         FROM action_plan ap
         LEFT JOIN activities a ON ap.activity_id = a.id
-        {where}
+        WHERE ap.user_id = %s {extra}
         ORDER BY ap.when_date, ap.id
-    """)
+    """, (user_id,))
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
 
-def upsert_action_plan(data: dict):
+def upsert_action_plan(user_id: int, data: dict):
+    activity_id = _safe_int(data.get('activity_id'))
+    if activity_id is not None:
+        owner = execute_query("SELECT id FROM activities WHERE id=%s AND user_id=%s", (activity_id, user_id))
+        if not owner:
+            raise PermissionError("Atividade não encontrada.")
+
     if data.get('id'):
-        execute_query("""
+        rows = execute_query("""
             UPDATE action_plan SET activity_id=%s, what=%s, why=%s, who=%s,
-            when_date=%s, where_place=%s, how=%s, how_much=%s, status=%s WHERE id=%s
-        """, (data.get('activity_id'), data.get('what'), data.get('why'), data.get('who'),
+            when_date=%s, where_place=%s, how=%s, how_much=%s, status=%s
+            WHERE id=%s AND user_id=%s
+            RETURNING id
+        """, (activity_id, data.get('what'), data.get('why'), data.get('who'),
                data.get('when_date'), data.get('where_place'), data.get('how'),
-               data.get('how_much'), data.get('status', 'Pendente'), data['id']), fetch=False)
+               data.get('how_much'), data.get('status', 'Pendente'), data['id'], user_id))
+        if not rows:
+            raise PermissionError("Item do plano de ação não encontrado.")
         return data['id']
     rows = execute_query("""
-        INSERT INTO action_plan (activity_id, what, why, who, when_date, where_place, how, how_much, status)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id
-    """, (data.get('activity_id'), data.get('what'), data.get('why'), data.get('who'),
+        INSERT INTO action_plan (activity_id, what, why, who, when_date, where_place, how, how_much, status, user_id)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id
+    """, (activity_id, data.get('what'), data.get('why'), data.get('who'),
            data.get('when_date'), data.get('where_place'), data.get('how'),
-           data.get('how_much'), data.get('status', 'Pendente')))
+           data.get('how_much'), data.get('status', 'Pendente'), user_id))
     return rows[0]['id'] if rows else None
 
 
-def delete_action_plan(plan_id: int):
-    execute_query("DELETE FROM action_plan WHERE id=%s", (plan_id,), fetch=False)
+def delete_action_plan(user_id: int, plan_id: int):
+    rows = execute_query(
+        "DELETE FROM action_plan WHERE id=%s AND user_id=%s RETURNING id",
+        (plan_id, user_id),
+    )
+    if not rows:
+        raise PermissionError("Item do plano de ação não encontrado.")
 
 
 # Colunas que a tabela editável (estilo Excel) do módulo Atividades pode
@@ -792,7 +849,7 @@ ACTIVITY_EDITABLE_FIELDS = {
 }
 
 
-def update_activity_field(activity_id: int, field: str, value):
+def update_activity_field(user_id: int, activity_id: int, field: str, value):
     """Salva uma célula editada da tabela de Atividades (autosave)."""
     if field not in ACTIVITY_EDITABLE_FIELDS:
         raise ValueError(f"Campo não editável: {field}")
@@ -800,18 +857,24 @@ def update_activity_field(activity_id: int, field: str, value):
         value = value or None
     elif field == "parent_id":
         value = _safe_int(value)
+        if value is not None:
+            owner = execute_query("SELECT id FROM activities WHERE id=%s AND user_id=%s", (value, user_id))
+            if not owner:
+                raise PermissionError("Atividade-pai não encontrada.")
     else:
         value = (value or "").strip() or None
-    execute_query(
-        f"UPDATE activities SET {field}=%s, updated_at=NOW() WHERE id=%s",
-        (value, activity_id), fetch=False,
+    rows = execute_query(
+        f"UPDATE activities SET {field}=%s, updated_at=NOW() WHERE id=%s AND user_id=%s RETURNING id",
+        (value, activity_id, user_id),
     )
+    if not rows:
+        raise PermissionError("Atividade não encontrada.")
 
 
 ACTION_PLAN_EDITABLE_FIELDS = {"activity_id", "what", "why", "who", "when_date", "where_place", "how", "how_much", "status"}
 
 
-def update_action_plan_field(plan_id: int, field: str, value):
+def update_action_plan_field(user_id: int, plan_id: int, field: str, value):
     """Salva uma célula editada da tabela 5W2H (autosave)."""
     if field not in ACTION_PLAN_EDITABLE_FIELDS:
         raise ValueError(f"Campo não editável: {field}")
@@ -823,28 +886,33 @@ def update_action_plan_field(plan_id: int, field: str, value):
         value = _safe_int(value)
         if value is None:
             raise ValueError("Escolha uma atividade.")
+        owner = execute_query("SELECT id FROM activities WHERE id=%s AND user_id=%s", (value, user_id))
+        if not owner:
+            raise PermissionError("Atividade não encontrada.")
     else:
         value = (value or "").strip() or None
-    execute_query(
-        f"UPDATE action_plan SET {field}=%s WHERE id=%s",
-        (value, plan_id), fetch=False,
+    rows = execute_query(
+        f"UPDATE action_plan SET {field}=%s WHERE id=%s AND user_id=%s RETURNING id",
+        (value, plan_id, user_id),
     )
+    if not rows:
+        raise PermissionError("Item do plano de ação não encontrado.")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # NOTIFICAÇÕES
 # ══════════════════════════════════════════════════════════════════════════════
 
-def get_items_for_notification():
-    """Retorna contas e atividades que vencem nos próximos 3 dias."""
+def get_items_for_notification(user_id: int):
+    """Retorna contas e atividades do usuário que vencem nos próximos 3 dias."""
     rows = execute_query("""
         SELECT 'transaction' AS type, description AS title, due_date, flow_type AS extra
         FROM transactions
-        WHERE status='Não pago' AND due_date BETWEEN CURRENT_DATE AND CURRENT_DATE+3
+        WHERE status='Não pago' AND due_date BETWEEN CURRENT_DATE AND CURRENT_DATE+3 AND user_id=%s
         UNION ALL
         SELECT 'activity' AS type, title, end_date AS due_date, priority AS extra
         FROM activities
-        WHERE status != 'Concluído' AND end_date BETWEEN CURRENT_DATE AND CURRENT_DATE+3
+        WHERE status != 'Concluído' AND end_date BETWEEN CURRENT_DATE AND CURRENT_DATE+3 AND user_id=%s
         ORDER BY due_date
-    """)
+    """, (user_id, user_id))
     return rows or []

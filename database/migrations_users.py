@@ -139,6 +139,40 @@ def run_multi_tenant_migrations():
                 END $$;
             """)
 
+            # categories tinha UNIQUE(flow_type, name) global — com
+            # multiusuário cada usuário precisa poder ter sua própria
+            # "Alimentação"/"Salário"/etc, então a unicidade passa a ser
+            # por (user_id, flow_type, name). upsert_category() já faz
+            # ON CONFLICT (user_id, flow_type, name).
+            cur.execute("ALTER TABLE categories DROP CONSTRAINT IF EXISTS categories_flow_type_name_key")
+            cur.execute("""
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM pg_constraint WHERE conname = 'categories_user_flow_name_key'
+                    ) THEN
+                        ALTER TABLE categories
+                            ADD CONSTRAINT categories_user_flow_name_key UNIQUE (user_id, flow_type, name);
+                    END IF;
+                END $$;
+            """)
+
+            # flow_diary tinha entry_date UNIQUE (1 registro de diário por
+            # dia, no total) — com multiusuário cada usuário precisa poder
+            # ter seu próprio diário no mesmo dia.
+            cur.execute("ALTER TABLE flow_diary DROP CONSTRAINT IF EXISTS flow_diary_entry_date_key")
+            cur.execute("""
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM pg_constraint WHERE conname = 'flow_diary_user_entry_date_key'
+                    ) THEN
+                        ALTER TABLE flow_diary
+                            ADD CONSTRAINT flow_diary_user_entry_date_key UNIQUE (user_id, entry_date);
+                    END IF;
+                END $$;
+            """)
+
             # foods.name era UNIQUE globalmente — continua compartilhada
             # entre todos os usuários (não ganha user_id de propósito).
         logger.info(f"✅ Migração multiusuário OK (dados antigos atribuídos ao usuário #{default_owner_id})")

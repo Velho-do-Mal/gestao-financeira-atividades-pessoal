@@ -8,7 +8,7 @@ uma meta, que fica dentro de Metas). Reaproveita as tabelas `activities`
 
 from datetime import datetime, date, timedelta
 
-from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
+from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, g
 
 from database.queries import (
     get_activities, upsert_activity, delete_activity,
@@ -40,13 +40,14 @@ def _parse_date(value):
 # ─── Listagem / tabela editável ────────────────────────────────────────────
 @atividades_bp.route("/")
 def index():
+    user_id = g.user_id
     today = date.today()
 
     f_priority = request.args.get("priority") or ""
     f_status = request.args.get("status") or ""
     f_quick = request.args.get("quick") or ""
 
-    df = get_activities(only_standalone=True)
+    df = get_activities(user_id, only_standalone=True)
     activities = df.to_dict("records") if df is not None and not df.empty else []
 
     titles_by_id = {a["id"]: a["title"] for a in activities}
@@ -88,7 +89,7 @@ def index():
         "concluidas": sum(1 for a in (df.to_dict("records") if df is not None and not df.empty else []) if a["status"] == "Concluído"),
     }
 
-    df_plans = get_action_plans(only_standalone=True)
+    df_plans = get_action_plans(user_id, only_standalone=True)
     action_plans = df_plans.to_dict("records") if df_plans is not None and not df_plans.empty else []
     activity_options = df.to_dict("records") if df is not None and not df.empty else []
 
@@ -109,7 +110,7 @@ def index():
 
 @atividades_bp.route("/rapida", methods=["POST"])
 def create_quick():
-    activity_id = upsert_activity({
+    activity_id = upsert_activity(g.user_id, {
         "title": "Nova atividade",
         "priority": "Importante não Urgente",
         "status": "Não iniciado",
@@ -121,30 +122,36 @@ def create_quick():
 def update_field(activity_id):
     body = request.get_json(silent=True) or {}
     try:
-        update_activity_field(activity_id, body.get("field", ""), body.get("value"))
+        update_activity_field(g.user_id, activity_id, body.get("field", ""), body.get("value"))
     except ValueError as e:
         return jsonify({"ok": False, "error": str(e)}), 400
+    except PermissionError as e:
+        return jsonify({"ok": False, "error": str(e)}), 404
     return jsonify({"ok": True})
 
 
 @atividades_bp.route("/<int:activity_id>/excluir", methods=["POST"])
 def delete(activity_id):
-    delete_activity(activity_id)
-    flash("Atividade excluída.", "success")
+    try:
+        delete_activity(g.user_id, activity_id)
+        flash("Atividade excluída.", "success")
+    except PermissionError:
+        flash("Atividade não encontrada.", "error")
     return redirect(url_for("atividades.index"))
 
 
 # ─── Plano de ação 5W2H (fora de metas) ────────────────────────────────────
 @atividades_bp.route("/plano-acao/rapido", methods=["POST"])
 def create_plan_quick():
+    user_id = g.user_id
     body = request.get_json(silent=True) or {}
     activity_id = body.get("activity_id")
     if not activity_id:
-        df = get_activities(only_standalone=True)
+        df = get_activities(user_id, only_standalone=True)
         if df is None or df.empty:
             return jsonify({"ok": False, "error": "Crie uma atividade antes de adicionar um item do plano 5W2H."}), 400
         activity_id = int(df.iloc[0]["id"])
-    plan_id = upsert_action_plan({
+    plan_id = upsert_action_plan(user_id, {
         "activity_id": activity_id,
         "what": "", "why": "", "who": "", "when_date": None,
         "where_place": "", "how": "", "how_much": None, "status": "Pendente",
@@ -156,14 +163,19 @@ def create_plan_quick():
 def update_plan_field(plan_id):
     body = request.get_json(silent=True) or {}
     try:
-        update_action_plan_field(plan_id, body.get("field", ""), body.get("value"))
+        update_action_plan_field(g.user_id, plan_id, body.get("field", ""), body.get("value"))
     except ValueError as e:
         return jsonify({"ok": False, "error": str(e)}), 400
+    except PermissionError as e:
+        return jsonify({"ok": False, "error": str(e)}), 404
     return jsonify({"ok": True})
 
 
 @atividades_bp.route("/plano-acao/<int:plan_id>/excluir", methods=["POST"])
 def delete_plan(plan_id):
-    delete_action_plan(plan_id)
-    flash("Item do plano de ação removido.", "success")
+    try:
+        delete_action_plan(g.user_id, plan_id)
+        flash("Item do plano de ação removido.", "success")
+    except PermissionError:
+        flash("Item do plano de ação não encontrado.", "error")
     return redirect(url_for("atividades.index"))

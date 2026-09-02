@@ -6,7 +6,7 @@ Gerencial e Dashboards. As Metas saíram deste módulo (ver blueprints/metas.py)
 
 from datetime import datetime
 
-from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
+from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, g
 
 from database.queries import (
     get_suppliers, upsert_supplier, delete_supplier, update_supplier_field,
@@ -32,12 +32,15 @@ def _parse_float(value, default=0.0):
 
 
 def _field_update_response(update_fn, *args):
-    """Wrapper comum das rotas de autosave por célula (tabelas editáveis)."""
+    """Wrapper comum das rotas de autosave por célula (tabelas editáveis).
+    `args` já inclui g.user_id como 1º elemento (passado pelo call site)."""
     body = request.get_json(silent=True) or {}
     try:
         update_fn(*args, body.get("field", ""), body.get("value"))
     except ValueError as e:
         return jsonify({"ok": False, "error": str(e)}), 400
+    except PermissionError as e:
+        return jsonify({"ok": False, "error": str(e)}), 404
     return jsonify({"ok": True})
 
 
@@ -50,11 +53,12 @@ def index():
     from dateutil.relativedelta import relativedelta
     import pandas as pd
 
+    user_id = g.user_id
     today = _date.today()
 
-    summary = get_home_summary()
+    summary = get_home_summary(user_id)
 
-    df_pending = get_transactions(status="Não pago")
+    df_pending = get_transactions(user_id, status="Não pago")
     pending = []
     if df_pending is not None and not df_pending.empty:
         for _, row in df_pending.sort_values("due_date").iterrows():
@@ -82,7 +86,7 @@ def index():
     cf_is_forecast = {"Previsto": True, "Realizado": False, "Ambos": None}.get(cf_view)
 
     cashflow = {"months": [], "income": [], "expense": [], "accumulated": []}
-    df_cf = get_transactions(start_date=cf_start, end_date=cf_end)
+    df_cf = get_transactions(user_id, start_date=cf_start, end_date=cf_end)
     if df_cf is not None and not df_cf.empty:
         df_cf = df_cf.copy()
         if cf_is_forecast is not None:
@@ -117,12 +121,13 @@ def index():
 
 @financas_bp.route("/cadastros")
 def cadastros():
+    user_id = g.user_id
     sub = request.args.get("sub", "fornecedores")
 
-    suppliers = get_suppliers()
+    suppliers = get_suppliers(user_id)
     suppliers = suppliers.to_dict("records") if suppliers is not None and not suppliers.empty else []
 
-    df_cats = get_categories()
+    df_cats = get_categories(user_id)
     categories = df_cats.to_dict("records") if df_cats is not None and not df_cats.empty else []
 
     subcategories = []
@@ -130,14 +135,14 @@ def cadastros():
         # Uma única query para TODAS as subcategorias (evita N+1 — antes eram
         # N queries, uma por categoria, cada uma com sua própria ida ao banco).
         cat_names = {int(c["id"]): c["name"] for _, c in df_cats.iterrows()}
-        df_sub_all = get_all_subcategories()
+        df_sub_all = get_all_subcategories(user_id)
         if df_sub_all is not None and not df_sub_all.empty:
             for _, s in df_sub_all.iterrows():
                 cid = int(s["category_id"])
                 if cid in cat_names:
                     subcategories.append({"id": s["id"], "name": s["name"], "category_id": cid, "category_name": cat_names[cid]})
 
-    df_bal = get_all_bank_balances()
+    df_bal = get_all_bank_balances(user_id)
     banks = df_bal.to_dict("records") if df_bal is not None and not df_bal.empty else []
     total_initial = sum(float(b["initial_balance"]) for b in banks)
     total_current = sum(float(b["current_balance"]) for b in banks)
@@ -169,20 +174,26 @@ def save_supplier():
     if not data["name"]:
         flash("Nome do fornecedor é obrigatório.", "error")
     else:
-        upsert_supplier(data)
-        flash("Fornecedor salvo.", "success")
+        try:
+            upsert_supplier(g.user_id, data)
+            flash("Fornecedor salvo.", "success")
+        except PermissionError:
+            flash("Fornecedor não encontrado.", "error")
     return redirect(url_for("financas.cadastros", sub="fornecedores"))
 
 
 @financas_bp.route("/fornecedores/<int:supplier_id>/campo", methods=["POST"])
 def update_supplier_field_route(supplier_id):
-    return _field_update_response(update_supplier_field, supplier_id)
+    return _field_update_response(update_supplier_field, g.user_id, supplier_id)
 
 
 @financas_bp.route("/fornecedores/<int:supplier_id>/excluir", methods=["POST"])
 def delete_supplier_route(supplier_id):
-    delete_supplier(supplier_id)
-    flash("Fornecedor excluído.", "success")
+    try:
+        delete_supplier(g.user_id, supplier_id)
+        flash("Fornecedor excluído.", "success")
+    except PermissionError:
+        flash("Fornecedor não encontrado.", "error")
     return redirect(url_for("financas.cadastros", sub="fornecedores"))
 
 
@@ -195,20 +206,26 @@ def save_category():
     if not name:
         flash("Nome da categoria é obrigatório.", "error")
     else:
-        upsert_category(flow_type, name, int(cat_id) if cat_id else None)
-        flash("Categoria salva.", "success")
+        try:
+            upsert_category(g.user_id, flow_type, name, int(cat_id) if cat_id else None)
+            flash("Categoria salva.", "success")
+        except PermissionError:
+            flash("Categoria não encontrada.", "error")
     return redirect(url_for("financas.cadastros", sub="categorias"))
 
 
 @financas_bp.route("/categorias/<int:cat_id>/campo", methods=["POST"])
 def update_category_field_route(cat_id):
-    return _field_update_response(update_category_field, cat_id)
+    return _field_update_response(update_category_field, g.user_id, cat_id)
 
 
 @financas_bp.route("/categorias/<int:cat_id>/excluir", methods=["POST"])
 def delete_category_route(cat_id):
-    delete_category(cat_id)
-    flash("Categoria excluída.", "success")
+    try:
+        delete_category(g.user_id, cat_id)
+        flash("Categoria excluída.", "success")
+    except PermissionError:
+        flash("Categoria não encontrada.", "error")
     return redirect(url_for("financas.cadastros", sub="categorias"))
 
 
@@ -220,20 +237,26 @@ def save_subcategory():
     if not name or not category_id:
         flash("Categoria e nome da subcategoria são obrigatórios.", "error")
     else:
-        upsert_subcategory(int(category_id), name, int(sub_id) if sub_id else None)
-        flash("Subcategoria salva.", "success")
+        try:
+            upsert_subcategory(g.user_id, int(category_id), name, int(sub_id) if sub_id else None)
+            flash("Subcategoria salva.", "success")
+        except PermissionError:
+            flash("Categoria ou subcategoria não encontrada.", "error")
     return redirect(url_for("financas.cadastros", sub="categorias"))
 
 
 @financas_bp.route("/subcategorias/<int:sub_id>/campo", methods=["POST"])
 def update_subcategory_field_route(sub_id):
-    return _field_update_response(update_subcategory_field, sub_id)
+    return _field_update_response(update_subcategory_field, g.user_id, sub_id)
 
 
 @financas_bp.route("/subcategorias/<int:sub_id>/excluir", methods=["POST"])
 def delete_subcategory_route(sub_id):
-    delete_subcategory(sub_id)
-    flash("Subcategoria excluída.", "success")
+    try:
+        delete_subcategory(g.user_id, sub_id)
+        flash("Subcategoria excluída.", "success")
+    except PermissionError:
+        flash("Subcategoria não encontrada.", "error")
     return redirect(url_for("financas.cadastros", sub="categorias"))
 
 
@@ -250,20 +273,26 @@ def save_bank():
     if not data["name"]:
         flash("Nome do banco é obrigatório.", "error")
     else:
-        upsert_bank(data)
-        flash("Banco salvo.", "success")
+        try:
+            upsert_bank(g.user_id, data)
+            flash("Banco salvo.", "success")
+        except PermissionError:
+            flash("Banco não encontrado.", "error")
     return redirect(url_for("financas.cadastros", sub="bancos"))
 
 
 @financas_bp.route("/bancos/<int:bank_id>/campo", methods=["POST"])
 def update_bank_field_route(bank_id):
-    return _field_update_response(update_bank_field, bank_id)
+    return _field_update_response(update_bank_field, g.user_id, bank_id)
 
 
 @financas_bp.route("/bancos/<int:bank_id>/excluir", methods=["POST"])
 def delete_bank_route(bank_id):
-    delete_bank(bank_id)
-    flash("Banco excluído.", "success")
+    try:
+        delete_bank(g.user_id, bank_id)
+        flash("Banco excluído.", "success")
+    except PermissionError:
+        flash("Banco não encontrado.", "error")
     return redirect(url_for("financas.cadastros", sub="bancos"))
 
 
@@ -282,17 +311,18 @@ def _parse_date(value):
 
 @financas_bp.route("/movimentacoes")
 def movimentacoes():
+    user_id = g.user_id
     sub = request.args.get("sub", "nova")
     ctx = {"sub": sub}
 
     if sub == "nova":
-        df_cats = get_categories()
-        df_banks = get_banks()
-        df_suppliers = get_suppliers()
+        df_cats = get_categories(user_id)
+        df_banks = get_banks(user_id)
+        df_suppliers = get_suppliers(user_id)
         ctx["categories"] = df_cats.to_dict("records") if df_cats is not None and not df_cats.empty else []
         ctx["banks"] = df_banks.to_dict("records") if df_banks is not None and not df_banks.empty else []
         ctx["suppliers"] = df_suppliers.to_dict("records") if df_suppliers is not None and not df_suppliers.empty else []
-        all_subs = get_all_subcategories()
+        all_subs = get_all_subcategories(user_id)
         ctx["subcategories"] = all_subs.to_dict("records") if all_subs is not None and not all_subs.empty else []
 
     elif sub == "lancamentos":
@@ -300,20 +330,20 @@ def movimentacoes():
         start_d = _parse_date(request.args.get("de")) or _date.today().replace(day=1)
         end_d = _parse_date(request.args.get("ate")) or _date.today()
         status = request.args.get("status") or None
-        df = get_transactions(start_date=start_d, end_date=end_d, status=status)
+        df = get_transactions(user_id, start_date=start_d, end_date=end_d, status=status)
         ctx["transactions"] = df.to_dict("records") if df is not None and not df.empty else []
         ctx["start_d"] = start_d
         ctx["end_d"] = end_d
         ctx["status"] = status or "Todos"
-        df_cats = get_categories()
-        df_banks = get_banks()
-        all_subs = get_all_subcategories()
+        df_cats = get_categories(user_id)
+        df_banks = get_banks(user_id)
+        all_subs = get_all_subcategories(user_id)
         ctx["categories"] = df_cats.to_dict("records") if df_cats is not None and not df_cats.empty else []
         ctx["banks"] = df_banks.to_dict("records") if df_banks is not None and not df_banks.empty else []
         ctx["subcategories"] = all_subs.to_dict("records") if all_subs is not None and not all_subs.empty else []
 
     elif sub == "recorrencias":
-        df = get_transactions()
+        df = get_transactions(user_id)
         groups = []
         if df is not None and not df.empty and "is_recurrent" in df.columns:
             recurrent = df[df["is_recurrent"] == True].copy()
@@ -338,12 +368,12 @@ def movimentacoes():
     elif sub in ("previsto", "realizado", "diferenca"):
         months = int(request.args.get("meses", 12))
         if sub == "previsto":
-            df_table, month_labels = build_cashflow_pivot(is_forecast=True, months=months)
+            df_table, month_labels = build_cashflow_pivot(user_id, is_forecast=True, months=months)
         elif sub == "realizado":
-            df_table, month_labels = build_cashflow_pivot(is_forecast=False, months=months)
+            df_table, month_labels = build_cashflow_pivot(user_id, is_forecast=False, months=months)
         else:
-            df_prev, month_labels = build_cashflow_pivot(is_forecast=True, months=months)
-            df_real, _ = build_cashflow_pivot(is_forecast=False, months=months)
+            df_prev, month_labels = build_cashflow_pivot(user_id, is_forecast=True, months=months)
+            df_real, _ = build_cashflow_pivot(user_id, is_forecast=False, months=months)
             if not df_prev.empty:
                 df_table = df_prev[["flow_type", "category", "subcategory"]].copy()
                 for m in month_labels:
@@ -354,7 +384,7 @@ def movimentacoes():
                 df_table = df_prev
 
         rows = df_table.to_dict("records") if df_table is not None and not df_table.empty else []
-        initial = get_total_initial_balance()
+        initial = get_total_initial_balance(user_id)
         totals = {ml: {"in": 0.0, "out": 0.0} for ml in month_labels}
         for r in rows:
             for ml in month_labels:
@@ -405,7 +435,7 @@ def create_transaction():
         "is_forecast": status != "Pago",
     }
     rec_months = int(form.get("recurrence_months") or 0) if data["is_recurrent"] else 0
-    insert_transaction(data, recurrence_months=rec_months)
+    insert_transaction(g.user_id, data, recurrence_months=rec_months)
     flash("Movimentação salva.", "success")
     return redirect(url_for("financas.movimentacoes", sub="nova"))
 
@@ -426,26 +456,32 @@ def update_transaction_route(tx_id):
         "status": status,
         "payment_date": _parse_date(form.get("payment_date")) if status == "Pago" else None,
     }
-    update_transaction(tx_id, data)
-    flash("Movimentação atualizada.", "success")
+    try:
+        update_transaction(g.user_id, tx_id, data)
+        flash("Movimentação atualizada.", "success")
+    except PermissionError:
+        flash("Movimentação não encontrada.", "error")
     return redirect(url_for("financas.movimentacoes", sub="lancamentos"))
 
 
 @financas_bp.route("/movimentacoes/<int:tx_id>/campo", methods=["POST"])
 def update_transaction_field_route(tx_id):
-    return _field_update_response(update_transaction_field, tx_id)
+    return _field_update_response(update_transaction_field, g.user_id, tx_id)
 
 
 @financas_bp.route("/movimentacoes/<int:tx_id>/excluir", methods=["POST"])
 def delete_transaction_route(tx_id):
-    delete_transaction(tx_id)
-    flash("Movimentação excluída.", "success")
+    try:
+        delete_transaction(g.user_id, tx_id)
+        flash("Movimentação excluída.", "success")
+    except PermissionError:
+        flash("Movimentação não encontrada.", "error")
     return redirect(url_for("financas.movimentacoes", sub="lancamentos"))
 
 
 @financas_bp.route("/recorrencias/<path:group_id>/excluir", methods=["POST"])
 def delete_recurrence_route(group_id):
-    delete_recurrence_group(group_id)
+    delete_recurrence_group(g.user_id, group_id)
     flash("Grupo de recorrência excluído (todas as parcelas).", "success")
     return redirect(url_for("financas.movimentacoes", sub="recorrencias"))
 
@@ -457,12 +493,13 @@ def delete_recurrence_route(group_id):
 @financas_bp.route("/gerencial")
 def gerencial():
     from datetime import date as _date
+    user_id = g.user_id
     start_d = _parse_date(request.args.get("de")) or _date.today().replace(day=1)
     end_d = _parse_date(request.args.get("ate")) or _date.today()
     view_mode = request.args.get("view", "Ambos")
     is_forecast = {"Previsto": True, "Realizado": False, "Ambos": None}.get(view_mode)
 
-    df_period = get_transactions(start_date=start_d, end_date=end_d)
+    df_period = get_transactions(user_id, start_date=start_d, end_date=end_d)
 
     cashflow = {"months": [], "income": [], "expense": [], "accumulated": []}
     total_in = total_out = 0.0
@@ -543,7 +580,7 @@ def export_extrato():
 
     start_d = _parse_date(request.args.get("de")) or _date.today().replace(day=1)
     end_d = _parse_date(request.args.get("ate")) or _date.today()
-    df = get_transactions(start_date=start_d, end_date=end_d)
+    df = get_transactions(g.user_id, start_date=start_d, end_date=end_d)
     if df is None or df.empty:
         flash("Nenhum lançamento no período para exportar.", "error")
         return redirect(url_for("financas.gerencial", de=start_d.isoformat(), ate=end_d.isoformat()))
@@ -576,7 +613,7 @@ def dashboards():
     start_d = _parse_date(request.args.get("de")) or today.replace(month=1, day=1)
     end_d = _parse_date(request.args.get("ate")) or today
 
-    df = get_transactions(start_date=start_d, end_date=end_d)
+    df = get_transactions(g.user_id, start_date=start_d, end_date=end_d)
     if df is None or df.empty:
         return render_template("financas/dashboards.html", has_data=False, start_d=start_d, end_d=end_d)
 

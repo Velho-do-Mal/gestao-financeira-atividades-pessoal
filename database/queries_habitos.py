@@ -1,6 +1,9 @@
 """
 database/queries_habitos.py
 Queries do módulo Hábitos — Ciclos de 90 dias
+
+MULTIUSUÁRIO: toda função recebe `user_id` e filtra/estampa esse valor —
+cada usuário só vê e só altera os próprios hábitos, ciclos e checks.
 """
 
 import pandas as pd
@@ -12,121 +15,139 @@ from database.connection import execute_query, db_cursor
 # HÁBITOS
 # ══════════════════════════════════════════════════════════════════════════════
 
-def get_habits() -> pd.DataFrame:
+def get_habits(user_id: int) -> pd.DataFrame:
     rows = execute_query("""
-        SELECT * FROM habits WHERE active = TRUE ORDER BY category, name
-    """)
+        SELECT * FROM habits WHERE active = TRUE AND user_id=%s ORDER BY category, name
+    """, (user_id,))
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
 
-def upsert_habit(data: dict):
+def upsert_habit(user_id: int, data: dict):
     if data.get('id'):
-        execute_query("""
+        rows = execute_query("""
             UPDATE habits
             SET name=%s, description=%s, category=%s, frequency_type=%s,
                 frequency_days=%s, color=%s, icon=%s
-            WHERE id=%s
+            WHERE id=%s AND user_id=%s
+            RETURNING id
         """, (data['name'], data.get('description'), data.get('category', 'Geral'),
               data.get('frequency_type', 'Diário'), data.get('frequency_days'),
-              data.get('color', '#3B82F6'), data.get('icon', '🎯'), data['id']),
-             fetch=False)
+              data.get('color', '#3B82F6'), data.get('icon', '🎯'), data['id'], user_id))
+        if not rows:
+            raise PermissionError("Hábito não encontrado.")
     else:
         rows = execute_query("""
-            INSERT INTO habits (name, description, category, frequency_type, frequency_days, color, icon)
-            VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id
+            INSERT INTO habits (name, description, category, frequency_type, frequency_days, color, icon, user_id)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id
         """, (data['name'], data.get('description'), data.get('category', 'Geral'),
               data.get('frequency_type', 'Diário'), data.get('frequency_days'),
-              data.get('color', '#3B82F6'), data.get('icon', '🎯')))
+              data.get('color', '#3B82F6'), data.get('icon', '🎯'), user_id))
         return rows[0]['id'] if rows else None
 
 
-def delete_habit(habit_id: int):
-    execute_query("UPDATE habits SET active=FALSE WHERE id=%s", (habit_id,), fetch=False)
+def delete_habit(user_id: int, habit_id: int):
+    rows = execute_query(
+        "UPDATE habits SET active=FALSE WHERE id=%s AND user_id=%s RETURNING id",
+        (habit_id, user_id),
+    )
+    if not rows:
+        raise PermissionError("Hábito não encontrado.")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # CICLOS DE 90 DIAS
 # ══════════════════════════════════════════════════════════════════════════════
 
-def get_cycles(habit_id: int) -> pd.DataFrame:
+def get_cycles(user_id: int, habit_id: int) -> pd.DataFrame:
     rows = execute_query("""
-        SELECT * FROM habit_cycles WHERE habit_id=%s ORDER BY start_date DESC
-    """, (habit_id,))
+        SELECT * FROM habit_cycles WHERE habit_id=%s AND user_id=%s ORDER BY start_date DESC
+    """, (habit_id, user_id))
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
 
-def get_active_cycle(habit_id: int) -> dict | None:
+def get_active_cycle(user_id: int, habit_id: int) -> dict | None:
     """Retorna o ciclo ativo mais recente do hábito."""
     rows = execute_query("""
         SELECT * FROM habit_cycles
-        WHERE habit_id=%s AND status='Em andamento'
+        WHERE habit_id=%s AND user_id=%s AND status='Em andamento'
         ORDER BY start_date DESC LIMIT 1
-    """, (habit_id,))
+    """, (habit_id, user_id))
     return dict(rows[0]) if rows else None
 
 
-def start_cycle(habit_id: int, start_date: date) -> int:
+def start_cycle(user_id: int, habit_id: int, start_date: date) -> int:
     """Inicia novo ciclo de 90 dias. Finaliza ciclos anteriores em andamento."""
+    owner = execute_query("SELECT id FROM habits WHERE id=%s AND user_id=%s", (habit_id, user_id))
+    if not owner:
+        raise PermissionError("Hábito não encontrado.")
     execute_query("""
         UPDATE habit_cycles SET status='Abandonado'
-        WHERE habit_id=%s AND status='Em andamento'
-    """, (habit_id,), fetch=False)
+        WHERE habit_id=%s AND user_id=%s AND status='Em andamento'
+    """, (habit_id, user_id), fetch=False)
     end_date = start_date + timedelta(days=89)
     rows = execute_query("""
-        INSERT INTO habit_cycles (habit_id, start_date, end_date)
-        VALUES (%s,%s,%s) RETURNING id
-    """, (habit_id, start_date, end_date))
+        INSERT INTO habit_cycles (habit_id, start_date, end_date, user_id)
+        VALUES (%s,%s,%s,%s) RETURNING id
+    """, (habit_id, start_date, end_date, user_id))
     return rows[0]['id'] if rows else None
 
 
-def finish_cycle(cycle_id: int, status: str = 'Concluído'):
-    execute_query(
-        "UPDATE habit_cycles SET status=%s WHERE id=%s",
-        (status, cycle_id), fetch=False,
+def finish_cycle(user_id: int, cycle_id: int, status: str = 'Concluído'):
+    rows = execute_query(
+        "UPDATE habit_cycles SET status=%s WHERE id=%s AND user_id=%s RETURNING id",
+        (status, cycle_id, user_id),
     )
+    if not rows:
+        raise PermissionError("Ciclo não encontrado.")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # CHECKS DIÁRIOS
 # ══════════════════════════════════════════════════════════════════════════════
 
-def get_checks(cycle_id: int) -> pd.DataFrame:
+def get_checks(user_id: int, cycle_id: int) -> pd.DataFrame:
     rows = execute_query("""
-        SELECT * FROM habit_checks WHERE cycle_id=%s ORDER BY check_date
-    """, (cycle_id,))
+        SELECT * FROM habit_checks WHERE cycle_id=%s AND user_id=%s ORDER BY check_date
+    """, (cycle_id, user_id))
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
 
-def toggle_check(cycle_id: int, check_date: date, notes: str = None):
+def toggle_check(user_id: int, cycle_id: int, check_date: date, notes: str = None):
     """Alterna marcação do dia: se existe marca como feito, se feito desmarca, se não existe cria."""
+    owner = execute_query("SELECT id FROM habit_cycles WHERE id=%s AND user_id=%s", (cycle_id, user_id))
+    if not owner:
+        raise PermissionError("Ciclo não encontrado.")
     existing = execute_query("""
-        SELECT id, done FROM habit_checks WHERE cycle_id=%s AND check_date=%s
-    """, (cycle_id, check_date))
+        SELECT id, done FROM habit_checks WHERE cycle_id=%s AND check_date=%s AND user_id=%s
+    """, (cycle_id, check_date, user_id))
 
     if existing:
         new_done = not bool(existing[0]['done'])
         execute_query("""
-            UPDATE habit_checks SET done=%s, notes=%s WHERE id=%s
-        """, (new_done, notes, existing[0]['id']), fetch=False)
+            UPDATE habit_checks SET done=%s, notes=%s WHERE id=%s AND user_id=%s
+        """, (new_done, notes, existing[0]['id'], user_id), fetch=False)
     else:
         execute_query("""
-            INSERT INTO habit_checks (cycle_id, check_date, done, notes)
-            VALUES (%s,%s,TRUE,%s)
-        """, (cycle_id, check_date, notes), fetch=False)
+            INSERT INTO habit_checks (cycle_id, check_date, done, notes, user_id)
+            VALUES (%s,%s,TRUE,%s,%s)
+        """, (cycle_id, check_date, notes, user_id), fetch=False)
 
 
-def mark_check(cycle_id: int, check_date: date, done: bool, notes: str = None):
+def mark_check(user_id: int, cycle_id: int, check_date: date, done: bool, notes: str = None):
     """Define explicitamente o estado de um dia."""
+    owner = execute_query("SELECT id FROM habit_cycles WHERE id=%s AND user_id=%s", (cycle_id, user_id))
+    if not owner:
+        raise PermissionError("Ciclo não encontrado.")
     execute_query("""
-        INSERT INTO habit_checks (cycle_id, check_date, done, notes)
-        VALUES (%s,%s,%s,%s)
+        INSERT INTO habit_checks (cycle_id, check_date, done, notes, user_id)
+        VALUES (%s,%s,%s,%s,%s)
         ON CONFLICT (cycle_id, check_date)
         DO UPDATE SET done=%s, notes=%s
-    """, (cycle_id, check_date, done, notes, done, notes), fetch=False)
+    """, (cycle_id, check_date, done, notes, user_id, done, notes), fetch=False)
 
 
-def get_today_habits() -> pd.DataFrame:
-    """Retorna todos os hábitos com ciclo ativo e status de hoje."""
+def get_today_habits(user_id: int) -> pd.DataFrame:
+    """Retorna todos os hábitos do usuário com ciclo ativo e status de hoje."""
     today = date.today()
     rows = execute_query("""
         SELECT
@@ -138,9 +159,9 @@ def get_today_habits() -> pd.DataFrame:
         FROM habits h
         JOIN habit_cycles hc ON hc.habit_id = h.id AND hc.status = 'Em andamento'
         LEFT JOIN habit_checks ck ON ck.cycle_id = hc.id AND ck.check_date = %s
-        WHERE h.active = TRUE
+        WHERE h.active = TRUE AND h.user_id = %s
         ORDER BY h.category, h.name
-    """, (today,))
+    """, (today, user_id))
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
 

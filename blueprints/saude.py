@@ -2,11 +2,14 @@
 blueprints/saude.py
 Módulo Saúde — Musculação (divisões, exercícios, séries, log de treino,
 evolução de carga) e Nutrição (alimentos, refeições, macros do dia).
+
+A base de alimentos (`foods`) é compartilhada entre todos os usuários (não
+é dado pessoal) — as rotas de alimentos não recebem/filtram user_id.
 """
 
 from datetime import datetime, date, time as dtime
 
-from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
+from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, g
 
 from database.queries_saude import (
     get_divisions, upsert_division, delete_division, update_division_field,
@@ -37,17 +40,20 @@ def _field_update_response(update_fn, *args):
         update_fn(*args, body.get("field", ""), body.get("value"))
     except ValueError as e:
         return jsonify({"ok": False, "error": str(e)}), 400
+    except PermissionError as e:
+        return jsonify({"ok": False, "error": str(e)}), 404
     return jsonify({"ok": True})
 
 
 @saude_bp.route("/")
 def index():
+    user_id = g.user_id
     today = date.today()
-    df_div = get_divisions()
+    df_div = get_divisions(user_id)
     divisions_count = len(df_div) if df_div is not None else 0
 
-    totals = get_daily_totals(today)
-    goals = get_macro_goals()
+    totals = get_daily_totals(user_id, today)
+    goals = get_macro_goals(user_id)
 
     return render_template(
         "saude/index.html",
@@ -61,42 +67,46 @@ def index():
 
 @saude_bp.route("/musculacao")
 def musculacao():
-    df = get_divisions()
+    df = get_divisions(g.user_id)
     divisions = df.to_dict("records") if df is not None and not df.empty else []
     return render_template("saude/musculacao.html", divisions=divisions)
 
 
 @saude_bp.route("/musculacao/divisao", methods=["POST"])
 def create_division():
-    upsert_division({"name": "Nova divisão"})
+    upsert_division(g.user_id, {"name": "Nova divisão"})
     return jsonify({"ok": True})
 
 
 @saude_bp.route("/musculacao/divisao/<int:div_id>/campo", methods=["POST"])
 def update_division_field_route(div_id):
-    return _field_update_response(update_division_field, div_id)
+    return _field_update_response(update_division_field, g.user_id, div_id)
 
 
 @saude_bp.route("/musculacao/divisao/<int:div_id>/excluir", methods=["POST"])
 def delete_division_route(div_id):
-    delete_division(div_id)
-    flash("Divisão removida.", "success")
+    try:
+        delete_division(g.user_id, div_id)
+        flash("Divisão removida.", "success")
+    except PermissionError:
+        flash("Divisão não encontrada.", "error")
     return redirect(url_for("saude.musculacao"))
 
 
 @saude_bp.route("/musculacao/<int:div_id>")
 def division_detail(div_id):
-    df_div = get_divisions()
+    user_id = g.user_id
+    df_div = get_divisions(user_id)
     divisions = df_div.to_dict("records") if df_div is not None and not df_div.empty else []
     division = next((d for d in divisions if d["id"] == div_id), None)
     if not division:
         flash("Divisão não encontrada.", "error")
         return redirect(url_for("saude.musculacao"))
 
-    df_ex = get_exercises(div_id)
+    df_ex = get_exercises(user_id, div_id)
     exercises = df_ex.to_dict("records") if df_ex is not None and not df_ex.empty else []
     for e in exercises:
-        df_sets = get_exercise_sets(e["id"])
+        df_sets = get_exercise_sets(user_id, e["id"])
         e["sets"] = df_sets.to_dict("records") if df_sets is not None and not df_sets.empty else []
 
     return render_template("saude/division_detail.html", division=division, exercises=exercises)
@@ -104,65 +114,79 @@ def division_detail(div_id):
 
 @saude_bp.route("/musculacao/<int:div_id>/exercicio", methods=["POST"])
 def create_exercise(div_id):
-    upsert_exercise({"division_id": div_id, "name": "Novo exercício"})
-    return jsonify({"ok": True})
+    try:
+        upsert_exercise(g.user_id, {"division_id": div_id, "name": "Novo exercício"})
+        return jsonify({"ok": True})
+    except PermissionError as e:
+        return jsonify({"ok": False, "error": str(e)}), 404
 
 
 @saude_bp.route("/musculacao/exercicio/<int:ex_id>/campo", methods=["POST"])
 def update_exercise_field_route(ex_id):
-    return _field_update_response(update_exercise_field, ex_id)
+    return _field_update_response(update_exercise_field, g.user_id, ex_id)
 
 
 @saude_bp.route("/musculacao/exercicio/<int:ex_id>/excluir", methods=["POST"])
 def delete_exercise_route(ex_id):
     div_id = request.form.get("div_id")
-    delete_exercise(ex_id)
-    flash("Exercício removido.", "success")
+    try:
+        delete_exercise(g.user_id, ex_id)
+        flash("Exercício removido.", "success")
+    except PermissionError:
+        flash("Exercício não encontrado.", "error")
     return redirect(url_for("saude.division_detail", div_id=div_id) if div_id else url_for("saude.musculacao"))
 
 
 @saude_bp.route("/musculacao/exercicio/<int:ex_id>/serie", methods=["POST"])
 def create_set(ex_id):
-    df_sets = get_exercise_sets(ex_id)
+    user_id = g.user_id
+    df_sets = get_exercise_sets(user_id, ex_id)
     next_num = (int(df_sets["set_number"].max()) + 1) if df_sets is not None and not df_sets.empty else 1
-    upsert_exercise_set({"exercise_id": ex_id, "set_number": next_num, "reps": 10, "weight_kg": 0})
-    return jsonify({"ok": True})
+    try:
+        upsert_exercise_set(user_id, {"exercise_id": ex_id, "set_number": next_num, "reps": 10, "weight_kg": 0})
+        return jsonify({"ok": True})
+    except PermissionError as e:
+        return jsonify({"ok": False, "error": str(e)}), 404
 
 
 @saude_bp.route("/musculacao/serie/<int:set_id>/campo", methods=["POST"])
 def update_set_field_route(set_id):
-    return _field_update_response(update_set_field, set_id)
+    return _field_update_response(update_set_field, g.user_id, set_id)
 
 
 @saude_bp.route("/musculacao/serie/<int:set_id>/excluir", methods=["POST"])
 def delete_set_route(set_id):
     ex_id = request.form.get("ex_id")
     div_id = request.form.get("div_id")
-    delete_exercise_set(set_id)
-    flash("Série removida.", "success")
+    try:
+        delete_exercise_set(g.user_id, set_id)
+        flash("Série removida.", "success")
+    except PermissionError:
+        flash("Série não encontrada.", "error")
     return redirect(url_for("saude.division_detail", div_id=div_id) if div_id else url_for("saude.musculacao"))
 
 
 @saude_bp.route("/musculacao/exercicio/<int:ex_id>")
 def exercise_detail(ex_id):
-    df_all = get_all_exercises()
+    user_id = g.user_id
+    df_all = get_all_exercises(user_id)
     exercises = df_all.to_dict("records") if df_all is not None and not df_all.empty else []
     exercise = next((e for e in exercises if e["id"] == ex_id), None)
     if not exercise:
         flash("Exercício não encontrado.", "error")
         return redirect(url_for("saude.musculacao"))
 
-    df_sets = get_exercise_sets(ex_id)
+    df_sets = get_exercise_sets(user_id, ex_id)
     planned_sets = df_sets.to_dict("records") if df_sets is not None and not df_sets.empty else []
 
     today = date.today()
-    df_log_today = get_workout_log(ex_id, today)
+    df_log_today = get_workout_log(user_id, ex_id, today)
     log_by_set = {}
     if df_log_today is not None and not df_log_today.empty:
         for _, row in df_log_today.iterrows():
             log_by_set[int(row["set_number"])] = row.to_dict()
 
-    df_history = get_weight_history(ex_id)
+    df_history = get_weight_history(user_id, ex_id)
     history = []
     if df_history is not None and not df_history.empty:
         for _, row in df_history.sort_values("log_date").iterrows():
@@ -194,32 +218,37 @@ def save_log(ex_id):
             })
         except (TypeError, ValueError):
             continue
-    save_workout_log(ex_id, date.today(), sets)
-    flash("Treino de hoje registrado.", "success")
+    try:
+        save_workout_log(g.user_id, ex_id, date.today(), sets)
+        flash("Treino de hoje registrado.", "success")
+    except PermissionError:
+        flash("Exercício não encontrado.", "error")
     return redirect(url_for("saude.exercise_detail", ex_id=ex_id))
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# NUTRIÇÃO
+# NUTRIÇÃO — refeições/itens/metas são pessoais (por usuário); a base de
+# alimentos é compartilhada (sem user_id, de propósito).
 # ══════════════════════════════════════════════════════════════════════════
 
 @saude_bp.route("/nutricao")
 def nutricao():
+    user_id = g.user_id
     seed_foods_if_empty()
     meal_date = _parse_date(request.args.get("data")) or date.today()
 
-    df_meals = get_meals(meal_date)
+    df_meals = get_meals(user_id, meal_date)
     meals = df_meals.to_dict("records") if df_meals is not None and not df_meals.empty else []
     for m in meals:
-        df_items = get_meal_items(m["id"])
+        df_items = get_meal_items(user_id, m["id"])
         # Nunca usar a chave "items": em dicts, {{ m.items }} no Jinja resolve
         # para o método builtin dict.items (getattr vence sobre getitem),
         # não para esta chave — por isso "food_items".
         m["food_items"] = df_items.to_dict("records") if df_items is not None and not df_items.empty else []
         m["kcal"] = sum(float(i["item_kcal"] or 0) for i in m["food_items"])
 
-    totals = get_daily_totals(meal_date)
-    goals = get_macro_goals()
+    totals = get_daily_totals(user_id, meal_date)
+    goals = get_macro_goals(user_id)
 
     df_foods = get_foods()
     foods = df_foods.to_dict("records") if df_foods is not None and not df_foods.empty else []
@@ -235,7 +264,7 @@ def create_meal():
     meal_date = _parse_date(request.form.get("meal_date")) or date.today()
     name = request.form.get("name", "").strip() or "Refeição"
     meal_time = request.form.get("meal_time") or None
-    upsert_meal({"name": name, "meal_time": meal_time, "meal_date": meal_date})
+    upsert_meal(g.user_id, {"name": name, "meal_time": meal_time, "meal_date": meal_date})
     flash("Refeição adicionada.", "success")
     return redirect(url_for("saude.nutricao", data=meal_date.isoformat()))
 
@@ -243,8 +272,11 @@ def create_meal():
 @saude_bp.route("/nutricao/refeicao/<int:meal_id>/excluir", methods=["POST"])
 def delete_meal_route(meal_id):
     meal_date = request.form.get("meal_date") or date.today().isoformat()
-    delete_meal(meal_id)
-    flash("Refeição removida.", "success")
+    try:
+        delete_meal(g.user_id, meal_id)
+        flash("Refeição removida.", "success")
+    except PermissionError:
+        flash("Refeição não encontrada.", "error")
     return redirect(url_for("saude.nutricao", data=meal_date))
 
 
@@ -257,16 +289,21 @@ def add_item(meal_id):
         flash("Escolha o alimento e a quantidade.", "error")
     else:
         try:
-            add_meal_item(meal_id, int(food_id), float(quantity_g))
+            add_meal_item(g.user_id, meal_id, int(food_id), float(quantity_g))
         except (TypeError, ValueError):
             pass
+        except PermissionError:
+            flash("Refeição não encontrada.", "error")
     return redirect(url_for("saude.nutricao", data=meal_date))
 
 
 @saude_bp.route("/nutricao/item/<int:item_id>/excluir", methods=["POST"])
 def delete_item(item_id):
     meal_date = request.form.get("meal_date") or date.today().isoformat()
-    delete_meal_item(item_id)
+    try:
+        delete_meal_item(g.user_id, item_id)
+    except PermissionError:
+        flash("Item não encontrado.", "error")
     return redirect(url_for("saude.nutricao", data=meal_date))
 
 
@@ -274,6 +311,7 @@ def delete_item(item_id):
 def save_goals():
     try:
         save_macro_goals(
+            g.user_id,
             float(request.form.get("protein_g", 0) or 0),
             float(request.form.get("carbs_g", 0) or 0),
             float(request.form.get("fat_g", 0) or 0),
