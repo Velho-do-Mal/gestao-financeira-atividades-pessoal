@@ -1,0 +1,56 @@
+{# Campos do formulário SMART de meta. `goal` é opcional (edição). #}
+<div class="field">
+  <label>Título da meta</label>
+  <input class="input" type="text" name="title" placeholder="Ex.: Faturar R$ 1 milhão até 2030 através dos meus serviços" value="{{ goal.title if goal else '' }}" required>
+</div>
+
+<div class="field">
+  <label>S — Específica (Specific)</label>
+  <textarea class="input" name="specific" placeholder="O que exatamente será alcançado e por quê?">{{ goal.specific if goal else '' }}</textarea>
+</div>
+
+<div class="field">
+  <label>M — Mensurável (Measurable)</label>
+  <textarea class="input" name="measurable" placeholder="Como o avanço será medido?">{{ goal.measurable if goal else '' }}</textarea>
+</div>
+
+<div class="field">
+  <label>A — Alcançável (Achievable)</label>
+  <textarea class="input" name="achievable" placeholder="Por que essa meta é viável com os recursos disponíveis?">{{ goal.achievable if goal else '' }}</textarea>
+</div>
+
+<div class="field">
+  <label>R — Relevante (Relevant)</label>
+  <textarea class="input" name="relevant" placeholder="Por que essa meta importa agora?">{{ goal.relevant if goal else '' }}</textarea>
+</div>
+
+<div class="form-row">
+  <div class="field">
+    <label>T — Prazo (Time-bound)</label>
+    <input class="input" type="date" name="time_bound" value="{{ goal.time_bound.isoformat() if goal and goal.time_bound else '' }}">
+  </div>
+  <div class="field">
+    <label>Unidade</label>
+    <input class="input" type="text" name="unit" placeholder="R$, %, clientes..." value="{{ goal.unit if goal else 'R$' }}">
+  </div>
+</div>
+
+<div class="form-row">
+  <div class="field">
+    <label>Valor alvo</label>
+    <input class="input" type="number" step="0.01" name="target_value" value="{{ goal.target_value if goal else 0 }}">
+  </div>
+  <div class="field">
+    <label>Valor atual</label>
+    <input class="input" type="number" step="0.01" name="current_value" value="{{ goal.current_value if goal else 0 }}">
+  </div>
+</div>
+
+<div class="field">
+  <label>Status</label>
+  <select class="input" name="status">
+    {% for opt in ['Em andamento', 'Concluída', 'Cancelada'] %}
+    <option value="{{ opt }}" {{ 'selected' if goal and goal.status == opt else '' }}>{{ opt }}</option>
+    {% endfor %}
+  </select>
+</div>

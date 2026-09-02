@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block title %}Metas — BK Gestão Pessoal{% endblock %}
+{% block content %}
+<div class="main-header">
+  <div>
+    <h1>🎯 Metas</h1>
+    <p>Metas SMART com acompanhamento de avanço e plano de ação.</p>
+  </div>
+  <button class="btn btn-primary" onclick="openModal('modal-nova-meta')">+ Nova meta</button>
+</div>
+
+<div class="section grid grid-4">
+  <div class="card metric card--accent">
+    <span class="metric__label">📊 Total de metas</span>
+    <span class="metric__value">{{ summary.total }}</span>
+  </div>
+  <div class="card metric card--info">
+    <span class="metric__label">🎯 Em andamento</span>
+    <span class="metric__value">{{ summary.ativas }}</span>
+  </div>
+  <div class="card metric card--success">
+    <span class="metric__label">✅ Concluídas</span>
+    <span class="metric__value">{{ summary.concluidas }}</span>
+  </div>
+  <div class="card metric card--danger">
+    <span class="metric__label">🔴 Atrasadas</span>
+    <span class="metric__value">{{ summary.atrasadas }}</span>
+  </div>
+</div>
+
+<div class="section" style="display:flex;gap:8px;flex-wrap:wrap;">
+  <a class="btn btn-sm {{ 'btn-primary' if not status_filter else 'btn-secondary' }}" href="{{ url_for('metas.index') }}">Todas</a>
+  <a class="btn btn-sm {{ 'btn-primary' if status_filter=='Em andamento' else 'btn-secondary' }}" href="{{ url_for('metas.index', status='Em andamento') }}">Em andamento</a>
+  <a class="btn btn-sm {{ 'btn-primary' if status_filter=='Concluída' else 'btn-secondary' }}" href="{{ url_for('metas.index', status='Concluída') }}">Concluídas</a>
+  <a class="btn btn-sm {{ 'btn-primary' if status_filter=='Cancelada' else 'btn-secondary' }}" href="{{ url_for('metas.index', status='Cancelada') }}">Canceladas</a>
+</div>
+
+{% if goals %}
+<div class="section grid grid-3">
+  {% for g in goals %}
+  {% set sit = g.situation %}
+  <a href="{{ url_for('metas.detail', goal_id=g.id) }}" class="card card--hover {{
+      'card--success' if sit=='concluida' else
+      'card--danger' if sit=='atrasada' else
+      'card--warning' if sit=='proximo_prazo' else
+      'card--muted' if sit=='cancelada' else 'card--accent' }}">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:10px;">
+      <h3 style="margin:0;font-size:15.5px;color:var(--text);">{{ g.title }}</h3>
+      <span class="badge {{
+          'badge-success' if sit=='concluida' else
+          'badge-danger' if sit=='atrasada' else
+          'badge-warning' if sit=='proximo_prazo' else
+          'badge-muted' if sit=='cancelada' else 'badge-info' }}">
+        {{ {'concluida':'Concluída','cancelada':'Cancelada','atrasada':'Atrasada','proximo_prazo':'Perto do prazo','em_dia':'Em dia'}[sit] }}
+      </span>
+    </div>
+
+    <div class="progress-bar" style="margin-bottom:6px;">
+      <div class="progress-bar__fill {{ 'success' if g.progress_pct >= 100 else 'warning' if g.progress_pct >= 50 else 'danger' }}" style="width:{{ g.progress_pct }}%"></div>
+    </div>
+    <p style="margin:0 0 10px;font-size:12.5px;color:var(--text-muted);">
+      {{ g.progress_pct }}% · {{ '%.2f'|format(g.current_value)|replace('.', ',') }} / {{ '%.2f'|format(g.target_value)|replace('.', ',') }} {{ g.unit }}
+    </p>
+
+    {% if g.time_bound %}
+    <p style="margin:0;font-size:12px;color:var(--text-faint);">📅 Prazo: {{ g.time_bound.strftime('%d/%m/%Y') }}</p>
+    {% endif %}
+  </a>
+  {% endfor %}
+</div>
+{% else %}
+<div class="card empty-state">
+  <span class="emoji">🎯</span>
+  <h2>Nenhuma meta cadastrada</h2>
+  <p>Crie sua primeira meta SMART — por exemplo, "Faturar R$ 1 milhão até 2030 através dos meus serviços".</p>
+  <button class="btn btn-primary" onclick="openModal('modal-nova-meta')">+ Nova meta</button>
+</div>
+{% endif %}
+
+<div class="modal-overlay" id="modal-nova-meta">
+  <div class="modal">
+    <div class="modal__header">
+      <h3>🎯 Nova meta SMART</h3>
+      <button class="modal__close" onclick="closeModal('modal-nova-meta')">&times;</button>
+    </div>
+    <form method="post" action="{{ url_for('metas.create') }}">
+      {% include "metas/_goal_form_fields.html" %}
+      <div class="modal__footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('modal-nova-meta')">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Criar meta</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

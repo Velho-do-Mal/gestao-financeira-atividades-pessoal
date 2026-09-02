@@ -19,6 +19,7 @@
 .card--danger { border-left: 4px solid var(--danger); }
 .card--warning { border-left: 4px solid var(--warning); }
 .card--info { border-left: 4px solid var(--info); }
+.card--muted { border-left: 4px solid var(--text-faint); }
 
 /* KPI metric card */
 .metric {

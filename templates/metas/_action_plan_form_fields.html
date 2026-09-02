@@ -1,0 +1,20 @@
+{# Campos do 5W2H para uma atividade atrasada. #}
+<div class="field"><label>O quê (What)</label><input class="input" type="text" name="what" placeholder="O que precisa ser feito para colocar em dia?" required></div>
+<div class="field"><label>Por quê (Why)</label><input class="input" type="text" name="why" placeholder="Por que está atrasada / por que fazer isso agora?"></div>
+<div class="form-row">
+  <div class="field"><label>Quem (Who)</label><input class="input" type="text" name="who" placeholder="Responsável"></div>
+  <div class="field"><label>Quando (When)</label><input class="input" type="date" name="when_date"></div>
+</div>
+<div class="field"><label>Onde (Where)</label><input class="input" type="text" name="where_place" placeholder="Onde será executado"></div>
+<div class="form-row">
+  <div class="field"><label>Como (How)</label><input class="input" type="text" name="how" placeholder="Como será feito"></div>
+  <div class="field"><label>Quanto custa (How much)</label><input class="input" type="number" step="0.01" name="how_much" placeholder="R$"></div>
+</div>
+<div class="field">
+  <label>Status</label>
+  <select class="input" name="status">
+    <option value="Pendente">Pendente</option>
+    <option value="Em andamento">Em andamento</option>
+    <option value="Concluído">Concluído</option>
+  </select>
+</div>

@@ -1,0 +1,251 @@
+{% extends "base.html" %}
+{% block title %}{{ goal.title }} — Metas{% endblock %}
+{% block content %}
+{% set sit = goal.situation %}
+<div class="main-header">
+  <div>
+    <p style="margin:0 0 4px;"><a href="{{ url_for('metas.index') }}" style="color:#BFDBFE;font-size:12.5px;">← Metas</a></p>
+    <h1>🎯 {{ goal.title }}</h1>
+    <p>
+      <span class="badge {{
+          'badge-success' if sit=='concluida' else
+          'badge-danger' if sit=='atrasada' else
+          'badge-warning' if sit=='proximo_prazo' else
+          'badge-muted' if sit=='cancelada' else 'badge-info' }}">
+        {{ {'concluida':'Concluída','cancelada':'Cancelada','atrasada':'Atrasada','proximo_prazo':'Perto do prazo','em_dia':'Em dia'}[sit] }}
+      </span>
+      {% if goal.time_bound %} · Prazo: {{ goal.time_bound.strftime('%d/%m/%Y') }}{% endif %}
+    </p>
+  </div>
+  <div style="display:flex;gap:8px;">
+    <button class="btn btn-secondary" onclick="openModal('modal-editar-meta')">✏️ Editar</button>
+    <button class="btn btn-danger" onclick="if(confirm('Excluir esta meta e todo o plano de ação vinculado?')) document.getElementById('form-excluir-meta').submit();">🗑 Excluir</button>
+  </div>
+</div>
+
+<div class="section grid grid-2">
+  <div class="card card--accent">
+    <span class="metric__label">Progresso</span>
+    <span class="metric__value">{{ goal.progress_pct }}%</span>
+    <div class="progress-bar" style="margin-top:10px;">
+      <div class="progress-bar__fill {{ 'success' if goal.progress_pct >= 100 else 'warning' if goal.progress_pct >= 50 else 'danger' }}" style="width:{{ goal.progress_pct }}%"></div>
+    </div>
+    <p style="margin:10px 0 0;color:var(--text-muted);font-size:13px;">
+      {{ '%.2f'|format(goal.current_value)|replace('.', ',') }} / {{ '%.2f'|format(goal.target_value)|replace('.', ',') }} {{ goal.unit }}
+    </p>
+    <button class="btn btn-primary btn-sm" style="margin-top:14px;" onclick="openModal('modal-progresso')">+ Registrar avanço</button>
+  </div>
+
+  <div class="card">
+    <span class="metric__label">📈 Evolução</span>
+    <div id="progress-chart" style="margin-top:6px;"></div>
+    {% if not chart_series %}
+    <p class="empty-state" style="padding:20px 0;">Nenhum check-in registrado ainda.</p>
+    {% endif %}
+  </div>
+</div>
+
+<div class="section card">
+  <h2 class="section-title" style="margin-bottom:16px;">🧭 SMART</h2>
+  <div class="grid grid-2">
+    <div><strong style="color:var(--primary-lighter);">S — Específica</strong><p style="color:var(--text-muted);font-size:13.5px;">{{ goal.specific or '—' }}</p></div>
+    <div><strong style="color:var(--primary-lighter);">M — Mensurável</strong><p style="color:var(--text-muted);font-size:13.5px;">{{ goal.measurable or '—' }}</p></div>
+    <div><strong style="color:var(--primary-lighter);">A — Alcançável</strong><p style="color:var(--text-muted);font-size:13.5px;">{{ goal.achievable or '—' }}</p></div>
+    <div><strong style="color:var(--primary-lighter);">R — Relevante</strong><p style="color:var(--text-muted);font-size:13.5px;">{{ goal.relevant or '—' }}</p></div>
+  </div>
+</div>
+
+{% if progress_log %}
+<div class="section card">
+  <h2 class="section-title">🗓 Histórico de check-ins</h2>
+  <div class="table-scroll">
+  <table class="table table--responsive">
+    <thead><tr><th>Data</th><th>Valor</th><th>Observação</th><th></th></tr></thead>
+    <tbody>
+    {% for p in progress_log %}
+      <tr>
+        <td data-label="Data">{{ p.log_date.strftime('%d/%m/%Y') if p.log_date.strftime else p.log_date }}</td>
+        <td data-label="Valor">{{ '%.2f'|format(p.value)|replace('.', ',') }} {{ goal.unit }}</td>
+        <td data-label="Observação">{{ p.note or '—' }}</td>
+        <td data-label="">
+          <form method="post" action="{{ url_for('metas.delete_progress', log_id=p.id) }}" onsubmit="return confirm('Remover este registro?');">
+            <input type="hidden" name="goal_id" value="{{ goal.id }}">
+            <button type="submit" class="btn btn-ghost btn-sm">🗑</button>
+          </form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+{% endif %}
+
+<div class="section">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+    <h2 class="section-title" style="margin:0;">🗂️ Plano de ação — serviços/atividades</h2>
+    <button class="btn btn-primary btn-sm" onclick="openModal('modal-nova-atividade')">+ Adicionar</button>
+  </div>
+
+  {% if activities %}
+  <div class="grid grid-3">
+    {% for a in activities %}
+    <div class="card {{ 'card--danger' if a.is_late else 'card--accent' }}">
+      <div style="display:flex;justify-content:space-between;gap:8px;">
+        <h3 style="margin:0 0 6px;font-size:14.5px;">{{ a.title }}</h3>
+        {% if a.is_late %}<span class="badge badge-danger">Atrasada</span>{% endif %}
+      </div>
+      {% if a.description %}<p style="color:var(--text-muted);font-size:12.5px;">{{ a.description }}</p>{% endif %}
+      <p style="font-size:12px;color:var(--text-faint);margin:6px 0;">
+        {% if a.start_date %}Início: {{ a.start_date.strftime('%d/%m/%Y') }}{% endif %}
+        {% if a.end_date %} · Fim: {{ a.end_date.strftime('%d/%m/%Y') }}{% endif %}
+      </p>
+      <span class="badge {{ 'badge-success' if a.status=='Concluído' else 'badge-info' if a.status=='Em andamento' else 'badge-muted' }}">{{ a.status }}</span>
+
+      <div style="display:flex;gap:6px;margin-top:12px;">
+        <button class="btn btn-secondary btn-sm" onclick="openModal('modal-editar-atividade-{{ a.id }}')">✏️ Editar</button>
+        <form method="post" action="{{ url_for('metas.delete_activity', activity_id=a.id) }}" onsubmit="return confirm('Remover esta atividade e seu plano 5W2H?');">
+          <input type="hidden" name="goal_id" value="{{ goal.id }}">
+          <button type="submit" class="btn btn-danger btn-sm">🗑</button>
+        </form>
+      </div>
+
+      {% if a.is_late %}
+      <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border-soft);">
+        <p style="margin:0 0 8px;font-size:12.5px;color:var(--danger-soft);font-weight:600;">⚠️ Atividade atrasada — plano de ação 5W2H</p>
+        {% set plans = action_plans_by_activity.get(a.id, []) %}
+        {% for p in plans %}
+        <div style="background:var(--bg-elevated);border:1px solid var(--border-soft);border-radius:var(--radius-sm);padding:10px 12px;margin-bottom:8px;font-size:12px;">
+          <p style="margin:0;"><strong>O quê:</strong> {{ p.what or '—' }}</p>
+          <p style="margin:2px 0;"><strong>Por quê:</strong> {{ p.why or '—' }}</p>
+          <p style="margin:2px 0;"><strong>Quem:</strong> {{ p.who or '—' }} {% if p.when_date %} · <strong>Quando:</strong> {{ p.when_date.strftime('%d/%m/%Y') }}{% endif %}</p>
+          <p style="margin:2px 0;"><strong>Onde:</strong> {{ p.where_place or '—' }}</p>
+          <p style="margin:2px 0;"><strong>Como:</strong> {{ p.how or '—' }}{% if p.how_much %} · <strong>Quanto:</strong> R$ {{ '%.2f'|format(p.how_much)|replace('.', ',') }}{% endif %}</p>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;">
+            <span class="badge {{ 'badge-success' if p.status=='Concluído' else 'badge-warning' }}">{{ p.status }}</span>
+            <form method="post" action="{{ url_for('metas.delete_action_plan_route', plan_id=p.id) }}" onsubmit="return confirm('Remover este item do 5W2H?');">
+              <input type="hidden" name="goal_id" value="{{ goal.id }}">
+              <button type="submit" class="btn btn-ghost btn-sm">🗑</button>
+            </form>
+          </div>
+        </div>
+        {% endfor %}
+        <button class="btn btn-secondary btn-sm btn-block" onclick="openModal('modal-5w2h-{{ a.id }}')">+ Novo item do plano 5W2H</button>
+      </div>
+      {% endif %}
+    </div>
+
+    {# Modal editar atividade #}
+    <div class="modal-overlay" id="modal-editar-atividade-{{ a.id }}">
+      <div class="modal">
+        <div class="modal__header">
+          <h3>✏️ Editar atividade</h3>
+          <button class="modal__close" onclick="closeModal('modal-editar-atividade-{{ a.id }}')">&times;</button>
+        </div>
+        <form method="post" action="{{ url_for('metas.update_activity', activity_id=a.id) }}">
+          <input type="hidden" name="goal_id" value="{{ goal.id }}">
+          {% include "metas/_activity_form_fields.html" %}
+          <div class="modal__footer">
+            <button type="button" class="btn btn-secondary" onclick="closeModal('modal-editar-atividade-{{ a.id }}')">Cancelar</button>
+            <button type="submit" class="btn btn-primary">Salvar</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    {% if a.is_late %}
+    <div class="modal-overlay" id="modal-5w2h-{{ a.id }}">
+      <div class="modal">
+        <div class="modal__header">
+          <h3>🗂️ Plano de ação 5W2H — {{ a.title }}</h3>
+          <button class="modal__close" onclick="closeModal('modal-5w2h-{{ a.id }}')">&times;</button>
+        </div>
+        <form method="post" action="{{ url_for('metas.create_action_plan', activity_id=a.id) }}">
+          <input type="hidden" name="goal_id" value="{{ goal.id }}">
+          {% include "metas/_action_plan_form_fields.html" %}
+          <div class="modal__footer">
+            <button type="button" class="btn btn-secondary" onclick="closeModal('modal-5w2h-{{ a.id }}')">Cancelar</button>
+            <button type="submit" class="btn btn-primary">Salvar</button>
+          </div>
+        </form>
+      </div>
+    </div>
+    {% endif %}
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="card empty-state">
+    <span class="emoji">🗂️</span>
+    <h2>Nenhuma atividade no plano de ação</h2>
+    <p>Adicione os serviços/passos para atingir a meta: o quê fazer, quando começa e quando termina.</p>
+  </div>
+  {% endif %}
+</div>
+
+{# ─── Modais globais da página ────────────────────────────────────── #}
+<form id="form-excluir-meta" method="post" action="{{ url_for('metas.delete', goal_id=goal.id) }}" style="display:none;"></form>
+
+<div class="modal-overlay" id="modal-editar-meta">
+  <div class="modal">
+    <div class="modal__header"><h3>✏️ Editar meta</h3><button class="modal__close" onclick="closeModal('modal-editar-meta')">&times;</button></div>
+    <form method="post" action="{{ url_for('metas.update', goal_id=goal.id) }}">
+      {% include "metas/_goal_form_fields.html" %}
+      <div class="modal__footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('modal-editar-meta')">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Salvar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-progresso">
+  <div class="modal">
+    <div class="modal__header"><h3>📈 Registrar avanço</h3><button class="modal__close" onclick="closeModal('modal-progresso')">&times;</button></div>
+    <form method="post" action="{{ url_for('metas.add_progress', goal_id=goal.id) }}">
+      <div class="form-row">
+        <div class="field"><label>Data</label><input class="input" type="date" name="log_date" value="{{ today.isoformat() }}"></div>
+        <div class="field"><label>Valor atual ({{ goal.unit }})</label><input class="input" type="number" step="0.01" name="value" value="{{ goal.current_value }}" required></div>
+      </div>
+      <div class="field"><label>Observação (opcional)</label><textarea class="input" name="note" placeholder="O que mudou desde o último check-in?"></textarea></div>
+      <div class="modal__footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('modal-progresso')">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Registrar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-nova-atividade">
+  <div class="modal">
+    <div class="modal__header"><h3>+ Nova atividade do plano de ação</h3><button class="modal__close" onclick="closeModal('modal-nova-atividade')">&times;</button></div>
+    <form method="post" action="{{ url_for('metas.create_activity', goal_id=goal.id) }}">
+      {% include "metas/_activity_form_fields.html" %}
+      <div class="modal__footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('modal-nova-atividade')">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Adicionar</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  var chartSeries = {{ chart_series|tojson }};
+  if (chartSeries.length) {
+    new ApexCharts(document.getElementById('progress-chart'), {
+      chart: { type: 'area', height: 220, toolbar: { show: false }, background: 'transparent' },
+      theme: { mode: 'dark' },
+      series: [{ name: 'Avanço', data: chartSeries }],
+      xaxis: { type: 'datetime', labels: { style: { colors: '#94A3B8' } } },
+      yaxis: { labels: { style: { colors: '#94A3B8' } } },
+      colors: ['#3B82F6'],
+      fill: { type: 'gradient', gradient: { shadeIntensity: 1, opacityFrom: 0.35, opacityTo: 0.02 } },
+      stroke: { curve: 'smooth', width: 2.5 },
+      dataLabels: { enabled: false },
+      grid: { borderColor: '#334155' },
+      tooltip: { theme: 'dark' },
+    }).render();
+  }
+</script>
+{% endblock %}
