@@ -1,0 +1,293 @@
+{% extends "base.html" %}
+{% block title %}Movimentações — Finanças{% endblock %}
+{% block content %}
+<div class="main-header">
+  <div><h1>💸 Movimentações</h1><p>Lançamentos financeiros, recorrências e fluxo de caixa.</p></div>
+</div>
+
+<div class="section" style="display:flex;gap:8px;flex-wrap:wrap;">
+  <a class="btn btn-sm {{ 'btn-primary' if sub=='nova' else 'btn-secondary' }}" href="{{ url_for('financas.movimentacoes', sub='nova') }}">➕ Nova</a>
+  <a class="btn btn-sm {{ 'btn-primary' if sub=='lancamentos' else 'btn-secondary' }}" href="{{ url_for('financas.movimentacoes', sub='lancamentos') }}">📝 Lançamentos</a>
+  <a class="btn btn-sm {{ 'btn-primary' if sub=='recorrencias' else 'btn-secondary' }}" href="{{ url_for('financas.movimentacoes', sub='recorrencias') }}">📅 Recorrências</a>
+  <a class="btn btn-sm {{ 'btn-primary' if sub=='previsto' else 'btn-secondary' }}" href="{{ url_for('financas.movimentacoes', sub='previsto') }}">📋 Previsto</a>
+  <a class="btn btn-sm {{ 'btn-primary' if sub=='realizado' else 'btn-secondary' }}" href="{{ url_for('financas.movimentacoes', sub='realizado') }}">✅ Realizado</a>
+  <a class="btn btn-sm {{ 'btn-primary' if sub=='diferenca' else 'btn-secondary' }}" href="{{ url_for('financas.movimentacoes', sub='diferenca') }}">📊 Diferença</a>
+  <span style="flex:1"></span>
+  <a class="btn btn-secondary btn-sm" href="{{ url_for('financas.cadastros') }}">🗄️ Cadastros</a>
+  <a class="btn btn-secondary btn-sm" href="{{ url_for('financas.gerencial') }}">📊 Gerencial</a>
+</div>
+
+{% if sub == 'nova' %}
+<div class="section card" style="max-width:820px;">
+  <form method="post" action="{{ url_for('financas.create_transaction') }}" id="form-nova-mov">
+    <div class="form-row">
+      <div class="field"><label>Tipo*</label>
+        <select class="input" name="flow_type" id="mov-flow-type" onchange="filterCategoriesMov()">
+          <option value="Saída">Saída</option><option value="Entrada">Entrada</option>
+        </select>
+      </div>
+      <div class="field"><label>Descrição</label><input class="input" type="text" name="description"></div>
+    </div>
+    <div class="form-row">
+      <div class="field"><label>Categoria</label>
+        <select class="input" name="category_id" id="mov-category" onchange="filterSubcategoriesMov()">
+          <option value="">— Selecione —</option>
+        </select>
+      </div>
+      <div class="field"><label>Subcategoria</label>
+        <select class="input" name="subcategory_id" id="mov-subcategory"><option value="">— Sem subcategoria —</option></select>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="field"><label>Valor (R$)*</label><input class="input" type="number" step="0.01" min="0" name="value" required></div>
+      <div class="field"><label>Juros (R$)</label><input class="input" type="number" step="0.01" min="0" name="interest" value="0"></div>
+    </div>
+    <div class="form-row">
+      <div class="field"><label>Vencimento*</label><input class="input" type="date" name="due_date" value="{{ today.isoformat() }}" required></div>
+      <div class="field"><label>Status</label>
+        <select class="input" name="status" id="mov-status" onchange="document.getElementById('mov-payment-date-wrap').style.display = this.value==='Pago' ? 'flex' : 'none';">
+          <option value="Não pago">Não pago</option><option value="Pago">Pago</option>
+        </select>
+      </div>
+      <div class="field" id="mov-payment-date-wrap" style="display:none;"><label>Data pagamento</label><input class="input" type="date" name="payment_date" value="{{ today.isoformat() }}"></div>
+    </div>
+    <div class="form-row">
+      <div class="field"><label>Banco/Conta</label>
+        <select class="input" name="bank_id"><option value="">— Nenhum —</option>
+          {% for b in banks %}<option value="{{ b.id }}">{{ b.name }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="field"><label>Fornecedor</label>
+        <select class="input" name="supplier_id"><option value="">— Nenhum —</option>
+          {% for s in suppliers %}<option value="{{ s.id }}">{{ s.name }}</option>{% endfor %}
+        </select>
+      </div>
+    </div>
+    <p style="font-size:12.5px;color:var(--text-muted);font-weight:600;margin:16px 0 8px;">Recorrência</p>
+    <div class="form-row">
+      <div class="field"><label>Recorrente?</label>
+        <select class="input" name="is_recurrent" id="mov-recurrent" onchange="document.getElementById('mov-rec-fields').style.display = this.value==='Sim' ? 'grid' : 'none';">
+          <option value="Não">Não</option><option value="Sim">Sim</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-row" id="mov-rec-fields" style="display:none;">
+      <div class="field"><label>Periodicidade</label>
+        <select class="input" name="recurrence_type"><option value="Mensal">Mensal</option><option value="Diário">Diário</option><option value="Anual">Anual</option></select>
+      </div>
+      <div class="field"><label>Qtd. ocorrências futuras</label><input class="input" type="number" min="1" max="60" name="recurrence_months" value="12"></div>
+    </div>
+    <div class="field"><label>Observações</label><textarea class="input" name="notes"></textarea></div>
+    <button type="submit" class="btn btn-primary btn-block">💾 Salvar movimentação</button>
+  </form>
+</div>
+
+<script>
+  var movCategories = {{ categories|tojson }};
+  var movSubcategories = {{ subcategories|tojson }};
+  function filterCategoriesMov() {
+    var ft = document.getElementById('mov-flow-type').value;
+    var sel = document.getElementById('mov-category');
+    sel.innerHTML = '<option value="">— Selecione —</option>';
+    movCategories.filter(function(c){ return c.flow_type === ft || c.flow_type === 'Ambos'; }).forEach(function(c) {
+      var opt = document.createElement('option'); opt.value = c.id; opt.textContent = c.name; sel.appendChild(opt);
+    });
+    filterSubcategoriesMov();
+  }
+  function filterSubcategoriesMov() {
+    var catId = document.getElementById('mov-category').value;
+    var sel = document.getElementById('mov-subcategory');
+    sel.innerHTML = '<option value="">— Sem subcategoria —</option>';
+    movSubcategories.filter(function(s){ return String(s.category_id) === String(catId); }).forEach(function(s) {
+      var opt = document.createElement('option'); opt.value = s.id; opt.textContent = s.name; sel.appendChild(opt);
+    });
+  }
+  filterCategoriesMov();
+</script>
+
+{% elif sub == 'lancamentos' %}
+<form method="get" class="section card" style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end;">
+  <input type="hidden" name="sub" value="lancamentos">
+  <div class="field" style="margin:0;"><label>De</label><input class="input" type="date" name="de" value="{{ start_d.isoformat() }}"></div>
+  <div class="field" style="margin:0;"><label>Até</label><input class="input" type="date" name="ate" value="{{ end_d.isoformat() }}"></div>
+  <div class="field" style="margin:0;"><label>Status</label>
+    <select class="input" name="status">
+      <option value="" {{ 'selected' if status=='Todos' else '' }}>Todos</option>
+      <option value="Pago" {{ 'selected' if status=='Pago' else '' }}>Pago</option>
+      <option value="Não pago" {{ 'selected' if status=='Não pago' else '' }}>Não pago</option>
+    </select>
+  </div>
+  <button type="submit" class="btn btn-primary">Filtrar</button>
+</form>
+
+{% if transactions %}
+<div class="section card">
+  <div class="table-scroll">
+  <table class="table table--responsive">
+    <thead><tr><th>Venc.</th><th>Tipo</th><th>Categoria</th><th>Descrição</th><th>Valor</th><th>Status</th><th></th></tr></thead>
+    <tbody>
+    {% for t in transactions %}
+      <tr>
+        <td data-label="Venc.">{{ t.due_date|brdate }}</td>
+        <td data-label="Tipo">{{ t.flow_type }}</td>
+        <td data-label="Categoria">{{ t.category_name or '—' }}</td>
+        <td data-label="Descrição">{{ t.description or '—' }}</td>
+        <td data-label="Valor">{{ t.total_value|brl }}</td>
+        <td data-label="Status"><span class="badge {{ 'badge-success' if t.status=='Pago' else 'badge-warning' }}">{{ t.status }}</span></td>
+        <td data-label="">
+          <button class="btn btn-secondary btn-sm" onclick="openModal('modal-tx-{{ t.id }}')">✏️</button>
+          <form method="post" action="{{ url_for('financas.delete_transaction_route', tx_id=t.id) }}" style="display:inline;" onsubmit="return confirm('Excluir lançamento?');">
+            <button type="submit" class="btn btn-danger btn-sm">🗑</button>
+          </form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+
+{% for t in transactions %}
+<div class="modal-overlay" id="modal-tx-{{ t.id }}">
+  <div class="modal">
+    <div class="modal__header"><h3>✏️ Editar lançamento</h3><button class="modal__close" onclick="closeModal('modal-tx-{{ t.id }}')">&times;</button></div>
+    <form method="post" action="{{ url_for('financas.update_transaction_route', tx_id=t.id) }}">
+      <div class="form-row">
+        <div class="field"><label>Tipo</label>
+          <select class="input" name="flow_type">
+            <option value="Saída" {{ 'selected' if t.flow_type=='Saída' else '' }}>Saída</option>
+            <option value="Entrada" {{ 'selected' if t.flow_type=='Entrada' else '' }}>Entrada</option>
+          </select>
+        </div>
+        <div class="field"><label>Descrição</label><input class="input" type="text" name="description" value="{{ t.description or '' }}"></div>
+      </div>
+      <div class="form-row">
+        <div class="field"><label>Categoria</label>
+          <select class="input" name="category_id">
+            <option value="">—</option>
+            {% for c in categories %}<option value="{{ c.id }}" {{ 'selected' if c.id==t.category_id else '' }}>{{ c.name }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="field"><label>Subcategoria</label>
+          <select class="input" name="subcategory_id">
+            <option value="">—</option>
+            {% for s in subcategories %}<option value="{{ s.id }}" {{ 'selected' if s.id==t.subcategory_id else '' }}>{{ s.name }}</option>{% endfor %}
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="field"><label>Valor</label><input class="input" type="number" step="0.01" name="value" value="{{ t.value }}"></div>
+        <div class="field"><label>Juros</label><input class="input" type="number" step="0.01" name="interest" value="{{ t.interest }}"></div>
+      </div>
+      <div class="form-row">
+        <div class="field"><label>Banco</label>
+          <select class="input" name="bank_id"><option value="">—</option>
+            {% for b in banks %}<option value="{{ b.id }}" {{ 'selected' if b.id==t.bank_id else '' }}>{{ b.name }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="field"><label>Vencimento</label><input class="input" type="date" name="due_date" value="{{ t.due_date.isoformat() if t.due_date else '' }}"></div>
+      </div>
+      <div class="form-row">
+        <div class="field"><label>Status</label>
+          <select class="input" name="status">
+            <option value="Não pago" {{ 'selected' if t.status=='Não pago' else '' }}>Não pago</option>
+            <option value="Pago" {{ 'selected' if t.status=='Pago' else '' }}>Pago</option>
+          </select>
+        </div>
+        <div class="field"><label>Data pagamento</label><input class="input" type="date" name="payment_date" value="{{ t.payment_date.isoformat() if t.payment_date else '' }}"></div>
+      </div>
+      <div class="modal__footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('modal-tx-{{ t.id }}')">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Salvar</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endfor %}
+{% else %}
+<div class="card empty-state"><span class="emoji">📝</span><h2>Nenhum lançamento no período</h2></div>
+{% endif %}
+
+{% elif sub == 'recorrencias' %}
+<div class="section grid grid-3">
+  <div class="card metric card--accent"><span class="metric__label">Grupos de recorrência</span><span class="metric__value">{{ total_groups }}</span></div>
+  <div class="card metric card--success"><span class="metric__label">Entradas recorrentes</span><span class="metric__value">{{ total_entradas }}</span></div>
+  <div class="card metric card--danger"><span class="metric__label">Saídas recorrentes</span><span class="metric__value">{{ total_saidas }}</span></div>
+</div>
+{% if groups %}
+<div class="section card">
+  <div class="table-scroll">
+  <table class="table table--responsive">
+    <thead><tr><th>Tipo</th><th>Categoria</th><th>Descrição</th><th>Period.</th><th>Parcelas</th><th>Valor/parcela</th><th>Total</th><th></th></tr></thead>
+    <tbody>
+    {% for g in groups %}
+      <tr>
+        <td data-label="Tipo">{{ g.flow_type }}</td>
+        <td data-label="Categoria">{{ g.category_name }}</td>
+        <td data-label="Descrição">{{ g.description }}</td>
+        <td data-label="Period.">{{ g.recurrence_type }}</td>
+        <td data-label="Parcelas">{{ g.parcelas }}</td>
+        <td data-label="Valor/parcela">{{ g.valor_parcela|brl }}</td>
+        <td data-label="Total">{{ g.valor_total|brl }}</td>
+        <td data-label="">
+          <form method="post" action="{{ url_for('financas.delete_recurrence_route', group_id=g.group_id) }}" onsubmit="return confirm('Excluir TODAS as parcelas deste grupo?');">
+            <button type="submit" class="btn btn-danger btn-sm">🗑 Excluir grupo</button>
+          </form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+{% else %}
+<div class="card empty-state"><span class="emoji">📅</span><h2>Nenhuma movimentação recorrente</h2></div>
+{% endif %}
+
+{% else %}
+{# previsto / realizado / diferenca — tabela pivô categoria x mês #}
+<form method="get" class="section" style="display:flex;gap:10px;align-items:center;">
+  <input type="hidden" name="sub" value="{{ sub }}">
+  <label style="font-size:12.5px;color:var(--text-muted);">Meses:</label>
+  <select class="input" name="meses" style="width:100px;" onchange="this.form.submit()">
+    {% for m in [3, 6, 12, 24] %}<option value="{{ m }}" {{ 'selected' if months==m else '' }}>{{ m }}</option>{% endfor %}
+  </select>
+</form>
+
+{% if rows %}
+<div class="section card">
+  <div class="table-scroll">
+  <table class="table">
+    <thead>
+      <tr><th>Tipo</th><th>Categoria</th><th>Subcategoria</th>{% for ml in month_labels %}<th>{{ ml }}</th>{% endfor %}</tr>
+    </thead>
+    <tbody>
+    {% for r in rows %}
+      <tr>
+        <td>{{ r.flow_type }}</td><td>{{ r.category }}</td><td>{{ r.subcategory }}</td>
+        {% for ml in month_labels %}<td>{{ r[ml]|brl }}</td>{% endfor %}
+      </tr>
+    {% endfor %}
+    </tbody>
+    <tfoot>
+      <tr style="font-weight:700;border-top:2px solid var(--border);">
+        <td colspan="3">Total saídas</td>{% for f in footer %}<td>{{ f.out|brl }}</td>{% endfor %}
+      </tr>
+      <tr style="font-weight:700;">
+        <td colspan="3">Total entradas</td>{% for f in footer %}<td>{{ f.in|brl }}</td>{% endfor %}
+      </tr>
+      <tr style="font-weight:700;color:var(--primary-lighter);">
+        <td colspan="3">Saldo do mês</td>{% for f in footer %}<td>{{ f.balance|brl }}</td>{% endfor %}
+      </tr>
+      <tr style="font-weight:700;color:var(--success-soft);">
+        <td colspan="3">Saldo acumulado</td>{% for f in footer %}<td>{{ f.accumulated|brl }}</td>{% endfor %}
+      </tr>
+    </tfoot>
+  </table>
+  </div>
+</div>
+{% else %}
+<div class="card empty-state"><span class="emoji">📋</span><h2>Sem dados para o período</h2></div>
+{% endif %}
+{% endif %}
+{% endblock %}

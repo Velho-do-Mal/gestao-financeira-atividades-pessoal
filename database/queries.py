@@ -404,6 +404,64 @@ def get_cashflow_planned_vs_actual(months: int = 24) -> pd.DataFrame:
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
 
+def build_cashflow_pivot(is_forecast: bool, months: int = 12) -> tuple:
+    """
+    Tabela pivô de fluxo de caixa (categoria/subcategoria x mês), usada nas
+    abas Previsto/Realizado/Diferença de Finanças → Movimentações.
+    Busca tudo de uma vez e agrega em pandas (3 queries no total, não uma
+    por célula da tabela).
+    """
+    today = date.today().replace(day=1)
+    month_dates = [today + relativedelta(months=i) for i in range(months)]
+    month_labels = [m.strftime("%b/%Y") for m in month_dates]
+
+    period_start = month_dates[0]
+    period_end = month_dates[-1] + relativedelta(months=1) - relativedelta(days=1)
+
+    df_cats = get_categories()
+    df_subs = get_all_subcategories()
+    df_all = get_transactions(start_date=period_start, end_date=period_end, is_forecast=is_forecast)
+
+    if df_cats.empty:
+        return pd.DataFrame(), month_labels
+
+    if not df_all.empty:
+        df_all = df_all.copy()
+        df_all["month_str"] = pd.to_datetime(df_all["due_date"]).dt.strftime("%b/%Y")
+        df_all["category_id"] = pd.to_numeric(df_all["category_id"], errors="coerce")
+        df_all["subcategory_id"] = pd.to_numeric(df_all["subcategory_id"], errors="coerce")
+        df_all["total_value"] = pd.to_numeric(df_all["total_value"], errors="coerce").fillna(0)
+
+    rows = []
+    for _, cat in df_cats.iterrows():
+        cat_id = int(cat["id"])
+        cat_subs = df_subs[df_subs["category_id"] == cat_id] if not df_subs.empty else pd.DataFrame()
+        # Sempre inclui o bucket "sem subcategoria" além de cada subcategoria
+        # cadastrada — uma categoria com subcategorias ainda pode ter
+        # lançamentos sem subcategoria escolhida, e eles não podem "sumir"
+        # da tabela (bug corrigido em relação à versão Streamlit original).
+        entries = [(None, "—")] + ([] if cat_subs.empty else [(int(s["id"]), s["name"]) for _, s in cat_subs.iterrows()])
+
+        for sub_id, sub_name in entries:
+            row = {"flow_type": cat["flow_type"], "category": cat["name"], "subcategory": sub_name}
+            if df_all.empty:
+                for ml in month_labels:
+                    row[ml] = 0.0
+            else:
+                df_cat = df_all[df_all["category_id"] == cat_id]
+                df_sub_data = df_cat[df_cat["subcategory_id"] == sub_id] if sub_id is not None else df_cat[df_cat["subcategory_id"].isna()]
+                if not df_sub_data.empty:
+                    agg = df_sub_data.groupby("month_str")["total_value"].sum()
+                    for ml in month_labels:
+                        row[ml] = float(agg.get(ml, 0.0))
+                else:
+                    for ml in month_labels:
+                        row[ml] = 0.0
+            rows.append(row)
+
+    return pd.DataFrame(rows), month_labels
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # METAS
 # ══════════════════════════════════════════════════════════════════════════════

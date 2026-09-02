@@ -13,7 +13,10 @@ from database.queries import (
     get_categories, get_subcategories, get_all_subcategories,
     upsert_category, upsert_subcategory, delete_category, delete_subcategory,
     get_banks, upsert_bank, delete_bank, get_all_bank_balances,
+    get_transactions, insert_transaction, update_transaction, delete_transaction,
+    delete_recurrence_group, get_total_initial_balance, build_cashflow_pivot,
 )
+from utils.helpers import df_to_excel_bytes
 
 financas_bp = Blueprint("financas", __name__, url_prefix="/financas")
 
@@ -163,21 +166,343 @@ def delete_bank_route(bank_id):
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# MOVIMENTAÇÕES / GERENCIAL / DASHBOARDS
-# (implementação completa em fase seguinte da migração — rotas já existem
-# para não quebrar a navegação entre sub-módulos de Finanças)
+# MOVIMENTAÇÕES
 # ══════════════════════════════════════════════════════════════════════════
+
+def _parse_date(value):
+    if not value:
+        return None
+    try:
+        return datetime.strptime(value, "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
 
 @financas_bp.route("/movimentacoes")
 def movimentacoes():
-    return render_template("stub.html", title="Finanças — Movimentações", icon="💸")
+    sub = request.args.get("sub", "nova")
+    ctx = {"sub": sub}
 
+    if sub == "nova":
+        df_cats = get_categories()
+        df_banks = get_banks()
+        df_suppliers = get_suppliers()
+        ctx["categories"] = df_cats.to_dict("records") if df_cats is not None and not df_cats.empty else []
+        ctx["banks"] = df_banks.to_dict("records") if df_banks is not None and not df_banks.empty else []
+        ctx["suppliers"] = df_suppliers.to_dict("records") if df_suppliers is not None and not df_suppliers.empty else []
+        all_subs = get_all_subcategories()
+        ctx["subcategories"] = all_subs.to_dict("records") if all_subs is not None and not all_subs.empty else []
+
+    elif sub == "lancamentos":
+        from datetime import date as _date
+        start_d = _parse_date(request.args.get("de")) or _date.today().replace(day=1)
+        end_d = _parse_date(request.args.get("ate")) or _date.today()
+        status = request.args.get("status") or None
+        df = get_transactions(start_date=start_d, end_date=end_d, status=status)
+        ctx["transactions"] = df.to_dict("records") if df is not None and not df.empty else []
+        ctx["start_d"] = start_d
+        ctx["end_d"] = end_d
+        ctx["status"] = status or "Todos"
+        df_cats = get_categories()
+        df_banks = get_banks()
+        all_subs = get_all_subcategories()
+        ctx["categories"] = df_cats.to_dict("records") if df_cats is not None and not df_cats.empty else []
+        ctx["banks"] = df_banks.to_dict("records") if df_banks is not None and not df_banks.empty else []
+        ctx["subcategories"] = all_subs.to_dict("records") if all_subs is not None and not all_subs.empty else []
+
+    elif sub == "recorrencias":
+        df = get_transactions()
+        groups = []
+        if df is not None and not df.empty and "is_recurrent" in df.columns:
+            recurrent = df[df["is_recurrent"] == True].copy()
+            recurrent = recurrent.dropna(subset=["recurrence_group_id"])
+            for gid, grp in recurrent.groupby("recurrence_group_id"):
+                first = grp.iloc[0]
+                groups.append({
+                    "group_id": str(gid),
+                    "flow_type": first["flow_type"],
+                    "category_name": first.get("category_name") or "—",
+                    "description": first.get("description") or "—",
+                    "recurrence_type": first.get("recurrence_type") or "Mensal",
+                    "parcelas": len(grp),
+                    "valor_parcela": float(first["value"]),
+                    "valor_total": float(grp["value"].sum()),
+                })
+        ctx["groups"] = groups
+        ctx["total_groups"] = len(groups)
+        ctx["total_entradas"] = len([g for g in groups if g["flow_type"] == "Entrada"])
+        ctx["total_saidas"] = len([g for g in groups if g["flow_type"] == "Saída"])
+
+    elif sub in ("previsto", "realizado", "diferenca"):
+        months = int(request.args.get("meses", 12))
+        if sub == "previsto":
+            df_table, month_labels = build_cashflow_pivot(is_forecast=True, months=months)
+        elif sub == "realizado":
+            df_table, month_labels = build_cashflow_pivot(is_forecast=False, months=months)
+        else:
+            df_prev, month_labels = build_cashflow_pivot(is_forecast=True, months=months)
+            df_real, _ = build_cashflow_pivot(is_forecast=False, months=months)
+            if not df_prev.empty:
+                df_table = df_prev[["flow_type", "category", "subcategory"]].copy()
+                for m in month_labels:
+                    p = df_prev[m] if m in df_prev.columns else 0
+                    r = df_real[m] if m in df_real.columns else 0
+                    df_table[m] = p - r
+            else:
+                df_table = df_prev
+
+        rows = df_table.to_dict("records") if df_table is not None and not df_table.empty else []
+        initial = get_total_initial_balance()
+        totals = {ml: {"in": 0.0, "out": 0.0} for ml in month_labels}
+        for r in rows:
+            for ml in month_labels:
+                v = float(r.get(ml, 0) or 0)
+                if r["flow_type"] == "Entrada":
+                    totals[ml]["in"] += v
+                elif r["flow_type"] == "Saída":
+                    totals[ml]["out"] += v
+        acc = initial
+        footer = []
+        for ml in month_labels:
+            bal = totals[ml]["in"] - totals[ml]["out"]
+            acc += bal
+            footer.append({"month": ml, "in": totals[ml]["in"], "out": totals[ml]["out"], "balance": bal, "accumulated": acc})
+
+        ctx["rows"] = rows
+        ctx["month_labels"] = month_labels
+        ctx["footer"] = footer
+        ctx["months"] = months
+
+    return render_template("financas/movimentacoes.html", **ctx)
+
+
+@financas_bp.route("/movimentacoes/nova", methods=["POST"])
+def create_transaction():
+    form = request.form
+    value = _parse_float(form.get("value"))
+    if value <= 0:
+        flash("Valor deve ser maior que zero.", "error")
+        return redirect(url_for("financas.movimentacoes", sub="nova"))
+
+    status = form.get("status", "Não pago")
+    data = {
+        "flow_type": form.get("flow_type", "Saída"),
+        "category_id": form.get("category_id") or None,
+        "subcategory_id": form.get("subcategory_id") or None,
+        "supplier_id": form.get("supplier_id") or None,
+        "bank_id": form.get("bank_id") or None,
+        "description": form.get("description", "").strip(),
+        "value": value,
+        "interest": _parse_float(form.get("interest"), 0.0),
+        "due_date": _parse_date(form.get("due_date")),
+        "status": status,
+        "payment_date": _parse_date(form.get("payment_date")) if status == "Pago" else None,
+        "is_recurrent": form.get("is_recurrent") == "Sim",
+        "recurrence_type": form.get("recurrence_type", "Mensal"),
+        "notes": form.get("notes", "").strip(),
+        "is_forecast": status != "Pago",
+    }
+    rec_months = int(form.get("recurrence_months") or 0) if data["is_recurrent"] else 0
+    insert_transaction(data, recurrence_months=rec_months)
+    flash("Movimentação salva.", "success")
+    return redirect(url_for("financas.movimentacoes", sub="nova"))
+
+
+@financas_bp.route("/movimentacoes/<int:tx_id>/editar", methods=["POST"])
+def update_transaction_route(tx_id):
+    form = request.form
+    status = form.get("status", "Não pago")
+    data = {
+        "flow_type": form.get("flow_type", "Saída"),
+        "category_id": form.get("category_id") or None,
+        "subcategory_id": form.get("subcategory_id") or None,
+        "bank_id": form.get("bank_id") or None,
+        "description": form.get("description", "").strip(),
+        "value": _parse_float(form.get("value")),
+        "interest": _parse_float(form.get("interest"), 0.0),
+        "due_date": _parse_date(form.get("due_date")),
+        "status": status,
+        "payment_date": _parse_date(form.get("payment_date")) if status == "Pago" else None,
+    }
+    update_transaction(tx_id, data)
+    flash("Movimentação atualizada.", "success")
+    return redirect(url_for("financas.movimentacoes", sub="lancamentos"))
+
+
+@financas_bp.route("/movimentacoes/<int:tx_id>/excluir", methods=["POST"])
+def delete_transaction_route(tx_id):
+    delete_transaction(tx_id)
+    flash("Movimentação excluída.", "success")
+    return redirect(url_for("financas.movimentacoes", sub="lancamentos"))
+
+
+@financas_bp.route("/recorrencias/<path:group_id>/excluir", methods=["POST"])
+def delete_recurrence_route(group_id):
+    delete_recurrence_group(group_id)
+    flash("Grupo de recorrência excluído (todas as parcelas).", "success")
+    return redirect(url_for("financas.movimentacoes", sub="recorrencias"))
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# GERENCIAL
+# ══════════════════════════════════════════════════════════════════════════
 
 @financas_bp.route("/gerencial")
 def gerencial():
-    return render_template("stub.html", title="Finanças — Gerencial", icon="📊")
+    from datetime import date as _date
+    start_d = _parse_date(request.args.get("de")) or _date.today().replace(day=1)
+    end_d = _parse_date(request.args.get("ate")) or _date.today()
+    view_mode = request.args.get("view", "Ambos")
+    is_forecast = {"Previsto": True, "Realizado": False, "Ambos": None}.get(view_mode)
 
+    df_all = get_transactions(start_date=start_d, end_date=end_d)
+    if is_forecast is not None and df_all is not None and not df_all.empty:
+        df_all = df_all[df_all["is_forecast"] == is_forecast]
+
+    cashflow = {"months": [], "income": [], "expense": []}
+    total_in = total_out = 0.0
+    extrato = []
+
+    if df_all is not None and not df_all.empty:
+        import pandas as pd
+        df_all = df_all.copy()
+        df_all["month"] = pd.to_datetime(df_all["due_date"]).dt.to_period("M").dt.to_timestamp()
+        grouped = df_all.groupby(["month", "flow_type"])["total_value"].sum().reset_index()
+        pivot = grouped.pivot(index="month", columns="flow_type", values="total_value").fillna(0).reset_index()
+        for _, row in pivot.iterrows():
+            cashflow["months"].append(row["month"].strftime("%b/%y"))
+            cashflow["income"].append(float(row.get("Entrada", 0)))
+            cashflow["expense"].append(float(row.get("Saída", 0)))
+
+        total_in = float(df_all[df_all["flow_type"] == "Entrada"]["total_value"].sum())
+        total_out = float(df_all[df_all["flow_type"] == "Saída"]["total_value"].sum())
+
+        for _, row in df_all.sort_values("due_date").iterrows():
+            extrato.append({
+                "due_date": row["due_date"], "flow_type": row["flow_type"],
+                "category_name": row.get("category_name") or "—",
+                "subcategory_name": row.get("subcategory_name") or "—",
+                "description": row.get("description") or "",
+                "total_value": float(row["total_value"]), "status": row["status"],
+                "bank_name": row.get("bank_name") or "—",
+            })
+
+    df_prev = get_transactions(start_date=start_d, end_date=end_d, is_forecast=True)
+    df_real = get_transactions(start_date=start_d, end_date=end_d, is_forecast=False)
+
+    def _pie_data(df):
+        if df is None or df.empty:
+            return {"labels": [], "values": []}
+        out = df[df["flow_type"] == "Saída"]
+        if out.empty:
+            return {"labels": [], "values": []}
+        agg = out.groupby("category_name")["total_value"].sum()
+        return {"labels": list(agg.index), "values": [float(v) for v in agg.values]}
+
+    pie_previsto = _pie_data(df_prev)
+    pie_realizado = _pie_data(df_real)
+
+    resultado = total_in - total_out
+
+    return render_template(
+        "financas/gerencial.html",
+        start_d=start_d, end_d=end_d, view_mode=view_mode,
+        cashflow=cashflow, total_in=total_in, total_out=total_out, resultado=resultado,
+        pie_previsto=pie_previsto, pie_realizado=pie_realizado, extrato=extrato,
+    )
+
+
+@financas_bp.route("/gerencial/exportar")
+def export_extrato():
+    from datetime import date as _date
+    from flask import Response
+
+    start_d = _parse_date(request.args.get("de")) or _date.today().replace(day=1)
+    end_d = _parse_date(request.args.get("ate")) or _date.today()
+    df = get_transactions(start_date=start_d, end_date=end_d)
+    if df is None or df.empty:
+        flash("Nenhum lançamento no período para exportar.", "error")
+        return redirect(url_for("financas.gerencial", de=start_d.isoformat(), ate=end_d.isoformat()))
+
+    cols = ["due_date", "flow_type", "category_name", "subcategory_name", "description", "total_value", "status", "bank_name"]
+    df_show = df[[c for c in cols if c in df.columns]].rename(columns={
+        "due_date": "Vencimento", "flow_type": "Tipo", "category_name": "Categoria",
+        "subcategory_name": "Subcategoria", "description": "Descrição",
+        "total_value": "Valor Total", "status": "Status", "bank_name": "Banco",
+    })
+    excel_bytes = df_to_excel_bytes(df_show)
+    filename = f"extrato_{start_d}_{end_d}.xlsx"
+    return Response(
+        excel_bytes,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# DASHBOARDS
+# ══════════════════════════════════════════════════════════════════════════
 
 @financas_bp.route("/dashboards")
 def dashboards():
-    return render_template("stub.html", title="Finanças — Dashboards", icon="📈")
+    from datetime import date as _date
+    import pandas as pd
+
+    today = _date.today()
+    start_d = _parse_date(request.args.get("de")) or today.replace(month=1, day=1)
+    end_d = _parse_date(request.args.get("ate")) or today
+
+    df = get_transactions(start_date=start_d, end_date=end_d)
+    if df is None or df.empty:
+        return render_template("financas/dashboards.html", has_data=False, start_d=start_d, end_d=end_d)
+
+    total_in = float(df[df["flow_type"] == "Entrada"]["total_value"].sum())
+    total_out = float(df[df["flow_type"] == "Saída"]["total_value"].sum())
+    resultado = total_in - total_out
+    inadimplencia = float(df[
+        (df["flow_type"] == "Saída") & (df["status"] == "Não pago") &
+        (pd.to_datetime(df["due_date"]).dt.date < today)
+    ]["total_value"].sum())
+
+    df = df.copy()
+    df["month"] = pd.to_datetime(df["due_date"]).dt.to_period("M").dt.to_timestamp()
+    grouped = df.groupby(["month", "flow_type"])["total_value"].sum().reset_index()
+    pivot = grouped.pivot(index="month", columns="flow_type", values="total_value").fillna(0).reset_index()
+    cashflow = {"months": [], "income": [], "expense": [], "accumulated": []}
+    acc = 0.0
+    for _, row in pivot.iterrows():
+        inc = float(row.get("Entrada", 0))
+        exp = float(row.get("Saída", 0))
+        acc += inc - exp
+        cashflow["months"].append(row["month"].strftime("%b/%y"))
+        cashflow["income"].append(inc)
+        cashflow["expense"].append(exp)
+        cashflow["accumulated"].append(acc)
+
+    def _pie(flow_type):
+        sub = df[df["flow_type"] == flow_type]
+        if sub.empty:
+            return {"labels": [], "values": []}
+        agg = sub.groupby("category_name")["total_value"].sum()
+        return {"labels": list(agg.index), "values": [float(v) for v in agg.values]}
+
+    tips = []
+    if inadimplencia > 0:
+        tips.append(f"⚠️ Inadimplência detectada: {inadimplencia:.2f} em contas vencidas.")
+    if resultado < 0:
+        tips.append(f"🔴 Resultado negativo: despesas superaram receitas.")
+    if total_out > 0 and (total_out / max(total_in, 1)) > 0.8:
+        tips.append("🟡 Comprometimento alto: mais de 80% das receitas comprometidas.")
+    if not tips:
+        tips.append("✅ Parabéns! Resultado positivo no período.")
+    tips += [
+        "📌 Revise o orçamento mensalmente e compare com o realizado.",
+        "💡 Metas SMART ajudam a manter o foco financeiro.",
+        "🏦 Mantenha ao menos 3 meses de despesas como reserva de emergência.",
+    ]
+
+    return render_template(
+        "financas/dashboards.html", has_data=True, start_d=start_d, end_d=end_d,
+        total_in=total_in, total_out=total_out, resultado=resultado, inadimplencia=inadimplencia,
+        cashflow=cashflow, pie_saidas=_pie("Saída"), pie_entradas=_pie("Entrada"), tips=tips,
+    )

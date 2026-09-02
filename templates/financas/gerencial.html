@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block title %}Gerencial — Finanças{% endblock %}
+{% block content %}
+<div class="main-header">
+  <div><h1>📊 Gerencial</h1><p>Fluxo de caixa, DRE e extrato do período.</p></div>
+</div>
+
+<form method="get" class="section card" style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end;">
+  <div class="field" style="margin:0;"><label>De</label><input class="input" type="date" name="de" value="{{ start_d.isoformat() }}"></div>
+  <div class="field" style="margin:0;"><label>Até</label><input class="input" type="date" name="ate" value="{{ end_d.isoformat() }}"></div>
+  <div class="field" style="margin:0;"><label>Visualização</label>
+    <select class="input" name="view">
+      {% for v in ['Previsto','Realizado','Ambos'] %}<option value="{{ v }}" {{ 'selected' if view_mode==v else '' }}>{{ v }}</option>{% endfor %}
+    </select>
+  </div>
+  <button type="submit" class="btn btn-primary">Filtrar</button>
+  <a class="btn btn-secondary" href="{{ url_for('financas.export_extrato', de=start_d.isoformat(), ate=end_d.isoformat()) }}">📥 Exportar Excel</a>
+</form>
+
+<div class="section card">
+  <h2 class="section-title">💹 Fluxo de caixa — {{ view_mode }}</h2>
+  {% if cashflow.months %}<div id="gerencial-cashflow"></div>{% else %}<div class="empty-state"><span class="emoji">💹</span><h2>Sem dados no período</h2></div>{% endif %}
+</div>
+
+<div class="section grid grid-2">
+  <div class="card"><h2 class="section-title">🥧 Previsto por categoria</h2>
+    {% if pie_previsto.labels %}<div id="pie-previsto"></div>{% else %}<p class="empty-state">Sem dados</p>{% endif %}
+  </div>
+  <div class="card"><h2 class="section-title">🥧 Realizado por categoria</h2>
+    {% if pie_realizado.labels %}<div id="pie-realizado"></div>{% else %}<p class="empty-state">Sem dados</p>{% endif %}
+  </div>
+</div>
+
+<div class="section card">
+  <h2 class="section-title">📑 DRE — Demonstrativo de Resultado</h2>
+  <table class="table" style="max-width:520px;">
+    <tbody>
+      <tr><td>Receitas totais</td><td style="text-align:right;color:var(--success-soft);font-weight:600;">{{ total_in|brl }}</td></tr>
+      <tr><td>(-) Despesas totais</td><td style="text-align:right;color:var(--danger-soft);font-weight:600;">({{ total_out|brl }})</td></tr>
+      <tr style="background:var(--bg-elevated);"><td style="font-weight:700;">= Resultado líquido</td><td style="text-align:right;font-weight:700;font-size:16px;color:{{ 'var(--success-soft)' if resultado >= 0 else 'var(--danger-soft)' }};">{{ resultado|brl }}</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="section card">
+  <h2 class="section-title">📜 Extrato do período</h2>
+  {% if extrato %}
+  <div class="table-scroll">
+  <table class="table table--responsive">
+    <thead><tr><th>Venc.</th><th>Tipo</th><th>Categoria</th><th>Descrição</th><th>Valor</th><th>Status</th><th>Banco</th></tr></thead>
+    <tbody>
+    {% for e in extrato %}
+      <tr>
+        <td data-label="Venc.">{{ e.due_date|brdate }}</td>
+        <td data-label="Tipo">{{ e.flow_type }}</td>
+        <td data-label="Categoria">{{ e.category_name }}</td>
+        <td data-label="Descrição">{{ e.description }}</td>
+        <td data-label="Valor">{{ e.total_value|brl }}</td>
+        <td data-label="Status"><span class="badge {{ 'badge-success' if e.status=='Pago' else 'badge-warning' }}">{{ e.status }}</span></td>
+        <td data-label="Banco">{{ e.bank_name }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <div class="empty-state"><span class="emoji">📜</span><h2>Nenhum lançamento no período</h2></div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  var cf = {{ cashflow|tojson }};
+  if (cf.months.length) {
+    new ApexCharts(document.getElementById('gerencial-cashflow'), {
+      chart: { type: 'bar', height: 280, toolbar: { show: false }, background: 'transparent' },
+      theme: { mode: 'dark' },
+      series: [{ name: 'Entradas', data: cf.income }, { name: 'Saídas', data: cf.expense }],
+      xaxis: { categories: cf.months, labels: { style: { colors: '#94A3B8' } } },
+      yaxis: { labels: { style: { colors: '#94A3B8' } } },
+      colors: ['#10B981', '#EF4444'],
+      plotOptions: { bar: { borderRadius: 4, columnWidth: '55%' } },
+      dataLabels: { enabled: false }, grid: { borderColor: '#334155' },
+      legend: { labels: { colors: '#94A3B8' } }, tooltip: { theme: 'dark' },
+    }).render();
+  }
+  function renderPie(elId, data, title) {
+    if (!data.labels.length) return;
+    new ApexCharts(document.getElementById(elId), {
+      chart: { type: 'donut', height: 260, background: 'transparent' },
+      theme: { mode: 'dark' },
+      series: data.values, labels: data.labels,
+      colors: ['#3B82F6','#10B981','#F59E0B','#EF4444','#8B5CF6','#06B6D4','#EC4899'],
+      legend: { position: 'bottom', labels: { colors: '#94A3B8' } },
+      dataLabels: { style: { colors: ['#0F172A'] } },
+      tooltip: { theme: 'dark' },
+    }).render();
+  }
+  renderPie('pie-previsto', {{ pie_previsto|tojson }});
+  renderPie('pie-realizado', {{ pie_realizado|tojson }});
+</script>
+{% endblock %}

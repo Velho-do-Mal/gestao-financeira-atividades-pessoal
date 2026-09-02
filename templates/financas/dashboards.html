@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}Dashboards — Finanças{% endblock %}
+{% block content %}
+<div class="main-header">
+  <div><h1>📈 Dashboards</h1><p>KPIs e insights financeiros do período.</p></div>
+</div>
+
+<form method="get" class="section card" style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end;">
+  <div class="field" style="margin:0;"><label>De</label><input class="input" type="date" name="de" value="{{ start_d.isoformat() }}"></div>
+  <div class="field" style="margin:0;"><label>Até</label><input class="input" type="date" name="ate" value="{{ end_d.isoformat() }}"></div>
+  <button type="submit" class="btn btn-primary">Filtrar</button>
+</form>
+
+{% if has_data %}
+<div class="section grid grid-4">
+  <div class="card metric card--success"><span class="metric__label">📥 Total receitas</span><span class="metric__value">{{ total_in|brl }}</span></div>
+  <div class="card metric card--danger"><span class="metric__label">📤 Total despesas</span><span class="metric__value">{{ total_out|brl }}</span></div>
+  <div class="card metric {{ 'card--accent' if resultado >= 0 else 'card--danger' }}"><span class="metric__label">💹 Resultado</span><span class="metric__value">{{ resultado|brl }}</span></div>
+  <div class="card metric card--warning"><span class="metric__label">⚠️ Inadimplência</span><span class="metric__value">{{ inadimplencia|brl }}</span></div>
+</div>
+
+<div class="section card">
+  <h2 class="section-title">📊 Fluxo de caixa</h2>
+  <div id="dash-cashflow"></div>
+</div>
+
+<div class="section grid grid-2">
+  <div class="card"><h2 class="section-title">🥧 Saídas por categoria</h2><div id="dash-pie-out"></div></div>
+  <div class="card"><h2 class="section-title">🥧 Entradas por categoria</h2><div id="dash-pie-in"></div></div>
+</div>
+
+<div class="section">
+  <h2 class="section-title">💡 Insights & dicas de gestão financeira</h2>
+  {% for tip in tips %}
+  <div class="card card--accent" style="margin-bottom:8px;padding:12px 16px;">{{ tip }}</div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="card empty-state"><span class="emoji">📈</span><h2>Nenhum dado no período</h2></div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if has_data %}
+<script>
+  var cf = {{ cashflow|tojson }};
+  new ApexCharts(document.getElementById('dash-cashflow'), {
+    chart: { type: 'line', height: 300, toolbar: { show: false }, background: 'transparent' },
+    theme: { mode: 'dark' },
+    series: [
+      { name: 'Entradas', type: 'column', data: cf.income },
+      { name: 'Saídas', type: 'column', data: cf.expense },
+      { name: 'Acumulado', type: 'line', data: cf.accumulated },
+    ],
+    xaxis: { categories: cf.months, labels: { style: { colors: '#94A3B8' } } },
+    yaxis: { labels: { style: { colors: '#94A3B8' } } },
+    colors: ['#10B981', '#EF4444', '#3B82F6'],
+    stroke: { width: [0, 0, 3], curve: 'smooth' },
+    dataLabels: { enabled: false }, grid: { borderColor: '#334155' },
+    legend: { labels: { colors: '#94A3B8' } }, tooltip: { theme: 'dark' },
+  }).render();
+
+  function renderPie(elId, data) {
+    if (!data.labels.length) return;
+    new ApexCharts(document.getElementById(elId), {
+      chart: { type: 'donut', height: 260, background: 'transparent' },
+      theme: { mode: 'dark' },
+      series: data.values, labels: data.labels,
+      colors: ['#EF4444','#3B82F6','#F59E0B','#10B981','#8B5CF6','#06B6D4','#EC4899'],
+      legend: { position: 'bottom', labels: { colors: '#94A3B8' } },
+      tooltip: { theme: 'dark' },
+    }).render();
+  }
+  renderPie('dash-pie-out', {{ pie_saidas|tojson }});
+  renderPie('dash-pie-in', {{ pie_entradas|tojson }});
+</script>
+{% endif %}
+{% endblock %}
