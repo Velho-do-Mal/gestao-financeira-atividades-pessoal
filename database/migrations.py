@@ -528,6 +528,10 @@ def run_all_migrations():
     Chamada uma vez na inicialização do app (ver app.py create_app()).
     """
     try:
+        # 0. Usuários (precisa existir antes do backfill multiusuário lá no fim)
+        from database.migrations_users import run_users_migrations
+        run_users_migrations()
+
         # 1. Schema base (transactions, activities, categories...)
         run_migrations()
 
@@ -548,6 +552,12 @@ def run_all_migrations():
 
         # 7. Notificações (digest diário)
         run_notifications_migrations()
+
+        # 8. Multiusuário — user_id em todas as tabelas de dados pessoais,
+        # com backfill dos dados que já existiam (precisa rodar por último,
+        # depois que todas as tabelas acima já existem).
+        from database.migrations_users import run_multi_tenant_migrations
+        run_multi_tenant_migrations()
 
         logger.info("✅ Todas as migrations OK")
         return True

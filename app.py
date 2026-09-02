@@ -93,6 +93,9 @@ def create_app():
     from blueprints.saude import saude_bp
     app.register_blueprint(saude_bp)
 
+    from blueprints.admin import admin_bp
+    app.register_blueprint(admin_bp)
+
     # ─── Digest diário (agendador em processo) ──────────────────────
     if os.getenv("ENABLE_SCHEDULER", "1") == "1" and db_ok:
         try:

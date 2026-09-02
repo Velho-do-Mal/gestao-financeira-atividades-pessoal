@@ -23,7 +23,7 @@
   ('saude.index', '/saude/', '💪', 'Saúde'),
 ] %}
 
-{% if session.get('logged_in') %}
+{% if session.get('user_id') %}
 <div class="app-shell">
   <aside class="sidebar">
     <div class="sidebar__brand">
@@ -39,6 +39,13 @@
         </a>
       </li>
       {% endfor %}
+      {% if current_is_admin %}
+      <li>
+        <a class="nav-item {{ 'active' if request.blueprint == 'admin' else '' }}" href="{{ url_for('admin.users') }}">
+          <span class="icon">👤</span> Usuários
+        </a>
+      </li>
+      {% endif %}
     </ul>
     <div class="sidebar__footer">
       {% if db_ok %}
@@ -46,7 +53,7 @@
       {% else %}
       <div class="db-status fail"><span class="dot">●</span> Banco desconectado</div>
       {% endif %}
-      <a class="logout-link" href="{{ url_for('auth.logout') }}">↩ Sair ({{ session.get('username','') }})</a>
+      <a class="logout-link" href="{{ url_for('auth.logout') }}">↩ Sair ({{ current_username or '' }})</a>
       <p class="sidebar__meta">{{ today.strftime('%d/%m/%Y') }} · v{{ app_version }}</p>
     </div>
   </aside>

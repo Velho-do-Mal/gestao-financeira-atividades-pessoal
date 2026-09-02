@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}Usuários — Admin{% endblock %}
+{% block content %}
+<div class="main-header">
+  <div><h1>👤 Usuários</h1><p>Cada usuário tem seus próprios dados — ninguém vê o de outro.</p></div>
+  <button class="btn btn-primary" onclick="openModal('modal-novo-usuario')">+ Novo usuário</button>
+</div>
+
+<div class="section card">
+  <div class="table-scroll">
+  <table class="table table--responsive">
+    <thead><tr><th>Usuário</th><th>Nome</th><th>E-mail</th><th>Admin</th><th>Status</th><th></th></tr></thead>
+    <tbody>
+    {% for u in users %}
+      <tr>
+        <td data-label="Usuário">{{ u.username }}</td>
+        <td data-label="Nome">{{ u.full_name or '—' }}</td>
+        <td data-label="E-mail">{{ u.email or '—' }}</td>
+        <td data-label="Admin">{{ '✅' if u.is_admin else '—' }}</td>
+        <td data-label="Status">
+          <span class="badge {{ 'badge-success' if u.active else 'badge-muted' }}">{{ 'Ativo' if u.active else 'Desativado' }}</span>
+        </td>
+        <td>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;">
+            <form method="post" action="{{ url_for('admin.toggle_active', user_id=u.id) }}">
+              <input type="hidden" name="active" value="{{ '0' if u.active else '1' }}">
+              <button type="submit" class="btn btn-secondary btn-sm">{{ 'Desativar' if u.active else 'Ativar' }}</button>
+            </form>
+            <button class="btn btn-ghost btn-sm" onclick="openModal('modal-senha-{{ u.id }}')">🔑 Senha</button>
+          </div>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-novo-usuario">
+  <div class="modal">
+    <div class="modal__header"><h3>+ Novo usuário</h3><button class="modal__close" onclick="closeModal('modal-novo-usuario')">&times;</button></div>
+    <form method="post" action="{{ url_for('admin.create') }}">
+      <div class="field"><label>Usuário (login)</label><input class="input" type="text" name="username" required></div>
+      <div class="field"><label>Senha (mín. 6 caracteres)</label><input class="input" type="password" name="password" minlength="6" required></div>
+      <div class="field"><label>Nome completo</label><input class="input" type="text" name="full_name"></div>
+      <div class="field"><label>E-mail (para receber o digest diário)</label><input class="input" type="email" name="email"></div>
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-muted);margin-top:10px;">
+        <input type="checkbox" name="is_admin" value="1"> Este usuário também é administrador
+      </label>
+      <div class="modal__footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('modal-novo-usuario')">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Criar usuário</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% for u in users %}
+<div class="modal-overlay" id="modal-senha-{{ u.id }}">
+  <div class="modal">
+    <div class="modal__header"><h3>🔑 Redefinir senha — {{ u.username }}</h3><button class="modal__close" onclick="closeModal('modal-senha-{{ u.id }}')">&times;</button></div>
+    <form method="post" action="{{ url_for('admin.reset_password', user_id=u.id) }}">
+      <div class="field"><label>Nova senha (mín. 6 caracteres)</label><input class="input" type="password" name="password" minlength="6" required></div>
+      <div class="modal__footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('modal-senha-{{ u.id }}')">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Redefinir</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endfor %}
+{% endblock %}
