@@ -17,6 +17,7 @@ from database.queries import (
     get_transactions, insert_transaction, update_transaction, delete_transaction,
     update_transaction_field,
     delete_recurrence_group, get_total_initial_balance, build_cashflow_pivot,
+    get_home_summary,
 )
 from utils.helpers import df_to_excel_bytes
 
@@ -42,7 +43,37 @@ def _field_update_response(update_fn, *args):
 
 @financas_bp.route("/")
 def index():
-    return redirect(url_for("financas.cadastros"))
+    """Página inicial do módulo Finanças: pendências (a quem, valor, quando
+    venceu), com indicador vermelho para o que já está vencido."""
+    from datetime import date as _date
+    today = _date.today()
+
+    summary = get_home_summary()
+
+    df_pending = get_transactions(status="Não pago")
+    pending = []
+    if df_pending is not None and not df_pending.empty:
+        for _, row in df_pending.sort_values("due_date").iterrows():
+            due = row["due_date"]
+            due_date_obj = due.date() if hasattr(due, "date") else due
+            is_overdue = bool(due_date_obj and due_date_obj < today)
+            pending.append({
+                "id": row["id"],
+                "flow_type": row["flow_type"],
+                "who": row.get("supplier_name") or row.get("description") or "—",
+                "category_name": row.get("category_name") or "—",
+                "total_value": float(row["total_value"]),
+                "due_date": due,
+                "is_overdue": is_overdue,
+                "days_overdue": (today - due_date_obj).days if is_overdue else 0,
+            })
+
+    return render_template(
+        "financas/index.html",
+        summary=summary,
+        pending=pending,
+        today=today,
+    )
 
 
 # ══════════════════════════════════════════════════════════════════════════

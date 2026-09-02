@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}Finanças — Pendências{% endblock %}
+{% block content %}
+<div class="main-header">
+  <div><h1>💼 Finanças</h1><p>Pendências — contas a pagar e a receber em aberto.</p></div>
+</div>
+
+<div class="section" style="display:flex;gap:8px;flex-wrap:wrap;">
+  <a class="btn btn-secondary btn-sm" href="{{ url_for('financas.cadastros') }}">🗄️ Cadastros</a>
+  <a class="btn btn-secondary btn-sm" href="{{ url_for('financas.movimentacoes') }}">💸 Movimentações</a>
+  <a class="btn btn-secondary btn-sm" href="{{ url_for('financas.gerencial') }}">📊 Gerencial</a>
+  <a class="btn btn-secondary btn-sm" href="{{ url_for('financas.dashboards') }}">📈 Dashboards</a>
+</div>
+
+<div class="section grid grid-3">
+  <div class="card metric card--danger">
+    <span class="metric__label">🚨 Vencidas</span>
+    <span class="metric__value">{{ money(summary.overdue) }}</span>
+    <span class="metric__delta">Não pagas, prazo já passou</span>
+  </div>
+  <div class="card metric card--warning">
+    <span class="metric__label">⏳ Vencem em até 3 dias</span>
+    <span class="metric__value">{{ money(summary.due_soon) }}</span>
+    <span class="metric__delta">Atenção ao prazo</span>
+  </div>
+  <div class="card metric card--success">
+    <span class="metric__label">📥 A receber</span>
+    <span class="metric__value">{{ money(summary.receivable) }}</span>
+    <span class="metric__delta">Entradas pendentes</span>
+  </div>
+</div>
+
+<div class="section">
+  <h2 class="section-title">📋 Pendências — a quem, quanto e quando vence</h2>
+  {% if pending %}
+  <div class="card">
+    <div class="table-scroll">
+    <table class="table table--responsive">
+      <thead><tr><th></th><th>Para quem</th><th>Categoria</th><th>Tipo</th><th>Valor</th><th>Vencimento</th></tr></thead>
+      <tbody>
+      {% for p in pending %}
+        <tr style="{{ 'background:rgba(239,68,68,0.08);' if p.is_overdue else '' }}">
+          <td data-label="">
+            {% if p.is_overdue %}<span class="badge badge-danger">🔴 Vencida há {{ p.days_overdue }}d</span>
+            {% else %}<span class="badge badge-muted">⚪ Em dia</span>{% endif %}
+          </td>
+          <td data-label="Para quem">{{ p.who }}</td>
+          <td data-label="Categoria">{{ p.category_name }}</td>
+          <td data-label="Tipo">{{ '📥 Crédito (entrada)' if p.flow_type == 'Entrada' else '📤 Débito (saída)' }}</td>
+          <td data-label="Valor">{{ money(-p.total_value if p.flow_type == 'Saída' else p.total_value) }}</td>
+          <td data-label="Vencimento">
+            <span style="{{ 'color:var(--danger-soft);font-weight:600;' if p.is_overdue else '' }}">{{ p.due_date|brdate }}</span>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+  </div>
+  {% else %}
+  <div class="card empty-state"><span class="emoji">✅</span><h2>Nenhuma pendência</h2><p>Todas as contas estão em dia.</p></div>
+  {% endif %}
+</div>
+{% endblock %}
