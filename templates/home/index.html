@@ -1,0 +1,209 @@
+{% extends "base.html" %}
+{% block title %}Home — BK Gestão Pessoal{% endblock %}
+{% block content %}
+<div class="main-header">
+  <div>
+    <h1>🏠 Painel</h1>
+    <p>Resumo do dia — {{ today.strftime('%d/%m/%Y') }}</p>
+  </div>
+</div>
+
+<div class="section grid grid-4">
+  <div class="card metric card--danger">
+    <span class="metric__label">🚨 Contas em atraso</span>
+    <span class="metric__value">{{ summary.overdue|brl }}</span>
+    <span class="metric__delta">Vencidas e não pagas</span>
+  </div>
+  <div class="card metric card--warning">
+    <span class="metric__label">⏳ Vencem em 3 dias</span>
+    <span class="metric__value">{{ summary.due_soon|brl }}</span>
+    <span class="metric__delta">Atenção ao prazo</span>
+  </div>
+  <div class="card metric card--success">
+    <span class="metric__label">📥 Contas a receber</span>
+    <span class="metric__value">{{ summary.receivable|brl }}</span>
+    <span class="metric__delta">Entradas pendentes</span>
+  </div>
+  <div class="card metric card--accent">
+    <span class="metric__label">💰 Saldo do dia</span>
+    <span class="metric__value">{{ summary.balance_today|brl }}</span>
+    <span class="metric__delta">Entradas − saídas hoje</span>
+  </div>
+</div>
+
+<div class="section card">
+  <h2 class="section-title">📊 Fluxo de caixa — últimos 6 meses</h2>
+  <div id="cashflow-chart"></div>
+</div>
+
+<div class="section">
+  <h2 class="section-title">📅 Resumo do dia</h2>
+  <div class="grid grid-3">
+    <div class="card">
+      <h3 style="margin:0 0 12px;font-size:13.5px;color:var(--text-muted);">📋 Atividades de hoje</h3>
+      {% if activities_today %}
+        {% for a in activities_today[:8] %}
+        <div style="background:var(--bg-elevated);border:1px solid var(--border-soft);border-radius:var(--radius-sm);padding:7px 10px;margin-bottom:6px;{{ 'opacity:.45' if a.status=='Concluído' else '' }}">
+          <div style="font-size:12.5px;color:var(--text);font-weight:500;">
+            {{ '✅' if a.status=='Concluído' else '🔴' if a.priority=='Urgente-Urgente' else '🟠' if a.priority=='Importante-Urgente' else '🟡' if a.priority=='Importante não Urgente' else '🟢' }}
+            {{ a.title }}
+          </div>
+          <div style="font-size:10.5px;color:var(--text-faint);">{{ a.priority }}{% if a.goal_title %} · 🎯 {{ a.goal_title }}{% endif %}</div>
+        </div>
+        {% endfor %}
+      {% else %}
+      <div style="text-align:center;padding:16px;color:var(--text-disabled);">
+        <div style="font-size:24px;">✅</div>
+        <p style="font-size:12px;">Sem atividades hoje</p>
+      </div>
+      {% endif %}
+    </div>
+
+    <div class="card">
+      <h3 style="margin:0 0 12px;font-size:13.5px;color:var(--text-muted);">🔄 Hábitos de hoje</h3>
+      {% if habits_today %}
+        {% for h in habits_today[:8] %}
+        <div style="background:var(--bg-elevated);border:1px solid var(--border-soft);border-left:3px solid {{ h.color or '#3B82F6' }};border-radius:var(--radius-sm);padding:7px 10px;margin-bottom:6px;{{ 'opacity:.45' if h.done_today else '' }}">
+          <span style="font-size:13px;">{{ h.icon or '🎯' }}</span>
+          <span style="font-size:12.5px;color:var(--text);">{{ h.name }}</span>
+          {% if h.done_today %}<span style="color:var(--success-soft);">✅</span>{% endif %}
+        </div>
+        {% endfor %}
+      {% elif habits_today is none %}
+      <div style="text-align:center;padding:16px;color:var(--text-disabled);">
+        <div style="font-size:24px;">🔄</div>
+        <p style="font-size:12px;">Configure hábitos na aba Hábitos</p>
+      </div>
+      {% else %}
+      <div style="text-align:center;padding:16px;color:var(--text-disabled);">
+        <div style="font-size:24px;">🎯</div>
+        <p style="font-size:12px;">Nenhum hábito hoje</p>
+      </div>
+      {% endif %}
+    </div>
+
+    <div class="card">
+      <h3 style="margin:0 0 12px;font-size:13.5px;color:var(--text-muted);">🏋️ Treino de {{ workout_day }}</h3>
+      {% if workout %}
+      <div style="background:var(--bg-elevated);border:1px solid var(--border-soft);border-left:4px solid var(--success);border-radius:var(--radius-sm);padding:8px 10px;margin-bottom:8px;">
+        <b style="color:var(--success-soft);font-size:12.5px;">{{ workout.name }}</b>
+        <div style="color:var(--text-faint);font-size:10.5px;">{{ workout.muscle_groups or '' }}</div>
+      </div>
+      {% for ex in workout_exercises[:8] %}
+      <div style="color:var(--text-muted);font-size:11px;padding:2px 0 2px 10px;border-left:2px solid var(--border);">
+        • {{ ex.name }}{% if ex.equipment %} · {{ ex.equipment }}{% endif %}
+      </div>
+      {% endfor %}
+      {% else %}
+      <div style="text-align:center;padding:16px;color:var(--text-disabled);">
+        <div style="font-size:24px;">💪</div>
+        <p style="font-size:12px;">Sem treino para {{ workout_day }}</p>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+    <h2 class="section-title" style="margin:0;">🎯 Metas em andamento</h2>
+    <a class="btn btn-secondary btn-sm" href="{{ url_for('metas.index') }}">Ver todas</a>
+  </div>
+  {% if active_goals %}
+  <div class="grid grid-3">
+    {% for g in active_goals %}
+    <a href="{{ url_for('metas.detail', goal_id=g.id) }}" class="card card--hover card--accent">
+      <b style="color:var(--primary-lighter);font-size:13.5px;">{{ g.title }}</b>
+      <div class="progress-bar" style="margin:10px 0 6px;">
+        <div class="progress-bar__fill {{ 'success' if g.progress_pct >= 100 else 'warning' if g.progress_pct >= 50 else 'danger' }}" style="width:{{ g.progress_pct }}%"></div>
+      </div>
+      <p style="margin:0;font-size:11.5px;color:var(--text-faint);">{{ g.progress_pct }}% {% if g.time_bound %} · Prazo: {{ g.time_bound.strftime('%d/%m/%Y') }}{% endif %}</p>
+    </a>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="card empty-state">
+    <span class="emoji">🎯</span>
+    <h2>Nenhuma meta ativa</h2>
+    <p><a class="btn btn-primary btn-sm" href="{{ url_for('metas.index') }}">Cadastrar meta</a></p>
+  </div>
+  {% endif %}
+</div>
+
+<div class="section card">
+  <h2 class="section-title">📈 Orçamento vs Realizado — mês atual</h2>
+  {% if budget_has_data %}
+  <div id="budget-chart" style="margin-bottom:20px;"></div>
+  <div class="table-scroll">
+  <table class="table table--responsive">
+    <thead><tr><th>Tipo</th><th>Categoria</th><th>Orçado</th><th>Realizado</th><th>Diferença</th><th>Status</th></tr></thead>
+    <tbody>
+    {% for r in budget_rows %}
+      <tr>
+        <td data-label="Tipo">{{ '📈 Entrada' if r.flow_type=='Entrada' else '📉 Saída' }}</td>
+        <td data-label="Categoria">{{ r.category }}</td>
+        <td data-label="Orçado">{{ r.planned|brl }}</td>
+        <td data-label="Realizado">{{ r.actual|brl }}</td>
+        <td data-label="Diferença">{{ r.diff|brl }}</td>
+        <td data-label="Status">
+          <span class="badge {{ 'badge-success' if r.ok else 'badge-danger' }}">{{ '✅ Dentro do esperado' if r.ok else '⚠️ Fora do esperado' }}</span>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <span class="emoji">📈</span>
+    <h2>Orçamento não configurado</h2>
+    <p>Configure o orçamento mensal em Finanças.</p>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  var cf = {{ cashflow|tojson }};
+  if (cf.months.length) {
+    new ApexCharts(document.getElementById('cashflow-chart'), {
+      chart: { type: 'line', height: 300, toolbar: { show: false }, background: 'transparent' },
+      theme: { mode: 'dark' },
+      series: [
+        { name: 'Entradas', type: 'column', data: cf.income },
+        { name: 'Saídas', type: 'column', data: cf.expense },
+        { name: 'Acumulado', type: 'line', data: cf.accumulated },
+      ],
+      xaxis: { categories: cf.months, labels: { style: { colors: '#94A3B8' } } },
+      yaxis: { labels: { style: { colors: '#94A3B8' }, formatter: function (v) { return 'R$ ' + (v/1000).toFixed(0) + 'k'; } } },
+      colors: ['#10B981', '#EF4444', '#3B82F6'],
+      stroke: { width: [0, 0, 3], curve: 'smooth' },
+      dataLabels: { enabled: false },
+      grid: { borderColor: '#334155' },
+      legend: { labels: { colors: '#94A3B8' } },
+      tooltip: { theme: 'dark' },
+    }).render();
+  }
+
+  {% if budget_has_data %}
+  var budgetRows = {{ budget_rows|tojson }};
+  new ApexCharts(document.getElementById('budget-chart'), {
+    chart: { type: 'bar', height: 280, toolbar: { show: false }, background: 'transparent' },
+    theme: { mode: 'dark' },
+    series: [
+      { name: 'Orçado', data: budgetRows.map(function(r){ return r.planned; }) },
+      { name: 'Realizado', data: budgetRows.map(function(r){ return r.actual; }) },
+    ],
+    xaxis: { categories: budgetRows.map(function(r){ return r.category; }), labels: { style: { colors: '#94A3B8' } } },
+    yaxis: { labels: { style: { colors: '#94A3B8' } } },
+    colors: ['#3B82F6', '#F59E0B'],
+    plotOptions: { bar: { borderRadius: 4, columnWidth: '55%' } },
+    dataLabels: { enabled: false },
+    grid: { borderColor: '#334155' },
+    legend: { labels: { colors: '#94A3B8' } },
+    tooltip: { theme: 'dark' },
+  }).render();
+  {% endif %}
+</script>
+{% endblock %}

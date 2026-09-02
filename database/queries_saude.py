@@ -3,7 +3,6 @@ database/queries_saude.py
 Queries do módulo Saúde — Musculação e Nutrição
 """
 
-import streamlit as st
 import pandas as pd
 from datetime import date
 from database.connection import execute_query, db_cursor
@@ -13,7 +12,6 @@ from database.connection import execute_query, db_cursor
 # MUSCULAÇÃO — DIVISÕES
 # ══════════════════════════════════════════════════════════════════════════════
 
-@st.cache_data(ttl=120, show_spinner=False)
 def get_divisions() -> pd.DataFrame:
     rows = execute_query("""
         SELECT * FROM workout_divisions WHERE active=TRUE ORDER BY order_index, name
@@ -43,7 +41,6 @@ def delete_division(div_id: int):
 # MUSCULAÇÃO — EXERCÍCIOS
 # ══════════════════════════════════════════════════════════════════════════════
 
-@st.cache_data(ttl=120, show_spinner=False)
 def get_exercises(division_id: int) -> pd.DataFrame:
     rows = execute_query("""
         SELECT * FROM exercises WHERE division_id=%s AND active=TRUE ORDER BY order_index, name
@@ -51,7 +48,6 @@ def get_exercises(division_id: int) -> pd.DataFrame:
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
 
-@st.cache_data(ttl=120, show_spinner=False)
 def get_all_exercises() -> pd.DataFrame:
     rows = execute_query("""
         SELECT e.*, d.name AS division_name
@@ -90,7 +86,6 @@ def update_exercise_order(ex_id: int, new_order: int):
 # MUSCULAÇÃO — SÉRIES PLANEJADAS
 # ══════════════════════════════════════════════════════════════════════════════
 
-@st.cache_data(ttl=120, show_spinner=False)
 def get_exercise_sets(exercise_id: int) -> pd.DataFrame:
     rows = execute_query("""
         SELECT * FROM exercise_sets WHERE exercise_id=%s ORDER BY set_number
@@ -120,7 +115,6 @@ def delete_exercise_set(set_id: int):
 # MUSCULAÇÃO — LOG DE TREINO (HISTÓRICO)
 # ══════════════════════════════════════════════════════════════════════════════
 
-@st.cache_data(ttl=60, show_spinner=False)
 def get_workout_log(exercise_id: int, log_date: date = None) -> pd.DataFrame:
     if log_date:
         rows = execute_query("""
@@ -134,7 +128,6 @@ def get_workout_log(exercise_id: int, log_date: date = None) -> pd.DataFrame:
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
 
-@st.cache_data(ttl=60, show_spinner=False)
 def get_weight_history(exercise_id: int) -> pd.DataFrame:
     """Histórico de carga máxima por dia para evolução."""
     rows = execute_query("""
@@ -161,7 +154,6 @@ def save_workout_log(exercise_id: int, log_date: date, sets: list):
 # NUTRIÇÃO — ALIMENTOS
 # ══════════════════════════════════════════════════════════════════════════════
 
-@st.cache_data(ttl=300, show_spinner=False)
 def get_foods(search: str = None) -> pd.DataFrame:
     if search:
         rows = execute_query("""
@@ -195,7 +187,6 @@ def delete_food(food_id: int):
 # NUTRIÇÃO — REFEIÇÕES
 # ══════════════════════════════════════════════════════════════════════════════
 
-@st.cache_data(ttl=60, show_spinner=False)
 def get_meals(meal_date: date) -> pd.DataFrame:
     rows = execute_query("""
         SELECT * FROM meals WHERE meal_date=%s ORDER BY meal_time NULLS LAST, name
@@ -226,7 +217,6 @@ def delete_meal(meal_id: int):
 # NUTRIÇÃO — ITENS DA REFEIÇÃO
 # ══════════════════════════════════════════════════════════════════════════════
 
-@st.cache_data(ttl=60, show_spinner=False)
 def get_meal_items(meal_id: int) -> pd.DataFrame:
     rows = execute_query("""
         SELECT mi.*, f.name AS food_name, f.preparation,
@@ -256,7 +246,6 @@ def delete_meal_item(item_id: int):
 # NUTRIÇÃO — RESUMO DO DIA
 # ══════════════════════════════════════════════════════════════════════════════
 
-@st.cache_data(ttl=60, show_spinner=False)
 def get_daily_totals(meal_date: date) -> dict:
     rows = execute_query("""
         SELECT
@@ -276,7 +265,6 @@ def get_daily_totals(meal_date: date) -> dict:
 # NUTRIÇÃO — METAS DE MACROS
 # ══════════════════════════════════════════════════════════════════════════════
 
-@st.cache_data(ttl=300, show_spinner=False)
 def get_macro_goals() -> dict:
     rows = execute_query("SELECT * FROM macro_goals ORDER BY id DESC LIMIT 1")
     if rows:

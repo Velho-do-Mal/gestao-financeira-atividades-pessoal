@@ -3,7 +3,6 @@ database/queries_habitos.py
 Queries do módulo Hábitos — Ciclos de 90 dias
 """
 
-import streamlit as st
 import pandas as pd
 from datetime import date, timedelta
 from database.connection import execute_query, db_cursor
@@ -13,7 +12,6 @@ from database.connection import execute_query, db_cursor
 # HÁBITOS
 # ══════════════════════════════════════════════════════════════════════════════
 
-@st.cache_data(ttl=120, show_spinner=False)
 def get_habits() -> pd.DataFrame:
     rows = execute_query("""
         SELECT * FROM habits WHERE active = TRUE ORDER BY category, name
@@ -50,7 +48,6 @@ def delete_habit(habit_id: int):
 # CICLOS DE 90 DIAS
 # ══════════════════════════════════════════════════════════════════════════════
 
-@st.cache_data(ttl=60, show_spinner=False)
 def get_cycles(habit_id: int) -> pd.DataFrame:
     rows = execute_query("""
         SELECT * FROM habit_cycles WHERE habit_id=%s ORDER BY start_date DESC
@@ -58,7 +55,6 @@ def get_cycles(habit_id: int) -> pd.DataFrame:
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
 
-@st.cache_data(ttl=60, show_spinner=False)
 def get_active_cycle(habit_id: int) -> dict | None:
     """Retorna o ciclo ativo mais recente do hábito."""
     rows = execute_query("""
@@ -94,7 +90,6 @@ def finish_cycle(cycle_id: int, status: str = 'Concluído'):
 # CHECKS DIÁRIOS
 # ══════════════════════════════════════════════════════════════════════════════
 
-@st.cache_data(ttl=30, show_spinner=False)
 def get_checks(cycle_id: int) -> pd.DataFrame:
     rows = execute_query("""
         SELECT * FROM habit_checks WHERE cycle_id=%s ORDER BY check_date
@@ -130,7 +125,6 @@ def mark_check(cycle_id: int, check_date: date, done: bool, notes: str = None):
     """, (cycle_id, check_date, done, notes, done, notes), fetch=False)
 
 
-@st.cache_data(ttl=30, show_spinner=False)
 def get_today_habits() -> pd.DataFrame:
     """Retorna todos os hábitos com ciclo ativo e status de hoje."""
     today = date.today()

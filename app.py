@@ -45,6 +45,10 @@ def create_app():
     db_ok = _ensure_db()
     app.config["DB_OK"] = db_ok
 
+    from utils.helpers import fmt_currency, fmt_date
+    app.jinja_env.filters["brl"] = fmt_currency
+    app.jinja_env.filters["brdate"] = fmt_date
+
     @app.context_processor
     def inject_globals():
         return {

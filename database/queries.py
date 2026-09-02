@@ -10,7 +10,6 @@ CORREÇÕES v2:
   - current_balance calculado dinamicamente (não depende mais da coluna desatualizada)
 """
 
-import streamlit as st
 import pandas as pd
 from datetime import date, datetime, timedelta
 from dateutil.relativedelta import relativedelta
@@ -25,17 +24,17 @@ import uuid
 
 def clear_data_cache():
     """
-    Limpa todo o cache de dados após qualquer operação de escrita.
-    Chamar antes de st.rerun() nos handlers de save/delete.
+    Mantido por compatibilidade — na migração para Flask não há mais cache
+    de leitura em memória (cada request consulta o Postgres diretamente),
+    então esta função é um no-op.
     """
-    st.cache_data.clear()
+    pass
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # DASHBOARD / HOME
 # ══════════════════════════════════════════════════════════════════════════════
 
-@st.cache_data(ttl=60, show_spinner=False)
 def get_home_summary() -> dict:
     """Retorna indicadores para o painel Home."""
     rows = execute_query("""
@@ -52,7 +51,6 @@ def get_home_summary() -> dict:
     return r
 
 
-@st.cache_data(ttl=120, show_spinner=False)
 def get_cashflow_chart_data(months: int = 6) -> pd.DataFrame:
     """Dados do gráfico de barras + linha para os últimos N meses.
     CORREÇÃO: usa aritmética de data Python em vez de INTERVAL '%s months'.
@@ -75,7 +73,6 @@ def get_cashflow_chart_data(months: int = 6) -> pd.DataFrame:
     return df
 
 
-@st.cache_data(ttl=60, show_spinner=False)
 def get_today_activities() -> pd.DataFrame:
     """Atividades que vencem hoje, ordenadas por prioridade."""
     rows = execute_query("""
@@ -98,7 +95,6 @@ def get_today_activities() -> pd.DataFrame:
 # FORNECEDORES
 # ══════════════════════════════════════════════════════════════════════════════
 
-@st.cache_data(ttl=120, show_spinner=False)
 def get_suppliers() -> pd.DataFrame:
     rows = execute_query("SELECT * FROM suppliers WHERE active=TRUE ORDER BY name")
     return pd.DataFrame(rows) if rows else pd.DataFrame()
@@ -127,7 +123,6 @@ def delete_supplier(supplier_id: int):
 # CATEGORIAS / SUBCATEGORIAS
 # ══════════════════════════════════════════════════════════════════════════════
 
-@st.cache_data(ttl=120, show_spinner=False)
 def get_categories(flow_type: Optional[str] = None) -> pd.DataFrame:
     if flow_type and flow_type != 'Todos':
         rows = execute_query("""
@@ -139,7 +134,6 @@ def get_categories(flow_type: Optional[str] = None) -> pd.DataFrame:
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
 
-@st.cache_data(ttl=120, show_spinner=False)
 def get_subcategories(category_id: int) -> pd.DataFrame:
     rows = execute_query("""
         SELECT * FROM subcategories WHERE category_id=%s AND active=TRUE ORDER BY name
@@ -147,7 +141,6 @@ def get_subcategories(category_id: int) -> pd.DataFrame:
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
 
-@st.cache_data(ttl=120, show_spinner=False)
 def get_all_subcategories() -> pd.DataFrame:
     """
     Retorna TODAS as subcategorias ativas de uma vez.
@@ -192,13 +185,11 @@ def delete_subcategory(sub_id: int):
 # BANCOS
 # ══════════════════════════════════════════════════════════════════════════════
 
-@st.cache_data(ttl=120, show_spinner=False)
 def get_banks() -> pd.DataFrame:
     rows = execute_query("SELECT * FROM banks WHERE active=TRUE ORDER BY name")
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
 
-@st.cache_data(ttl=120, show_spinner=False)
 def get_all_bank_balances() -> pd.DataFrame:
     """
     Saldo atual calculado dinamicamente: saldo_inicial + entradas_pagas - saídas_pagas.
@@ -221,7 +212,6 @@ def get_all_bank_balances() -> pd.DataFrame:
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
 
-@st.cache_data(ttl=120, show_spinner=False)
 def get_total_initial_balance() -> float:
     rows = execute_query("SELECT COALESCE(SUM(initial_balance),0) AS total FROM banks WHERE active=TRUE")
     return float(rows[0]['total']) if rows else 0.0
@@ -249,7 +239,6 @@ def delete_bank(bank_id: int):
 # MOVIMENTAÇÕES
 # ══════════════════════════════════════════════════════════════════════════════
 
-@st.cache_data(ttl=120, show_spinner=False)
 def get_transactions(
     start_date=None, end_date=None,
     status=None, flow_type=None, is_forecast=None,
@@ -394,7 +383,6 @@ def delete_recurrence_group(group_id: str):
     )
 
 
-@st.cache_data(ttl=120, show_spinner=False)
 def get_cashflow_planned_vs_actual(months: int = 24) -> pd.DataFrame:
     """
     Retorna dados de previsto x realizado por mês.
@@ -420,7 +408,6 @@ def get_cashflow_planned_vs_actual(months: int = 24) -> pd.DataFrame:
 # METAS
 # ══════════════════════════════════════════════════════════════════════════════
 
-@st.cache_data(ttl=120, show_spinner=False)
 def get_goals() -> pd.DataFrame:
     rows = execute_query("SELECT * FROM goals ORDER BY time_bound, title")
     return pd.DataFrame(rows) if rows else pd.DataFrame()
@@ -453,7 +440,6 @@ def delete_goal(goal_id: int):
 # ORÇAMENTO
 # ══════════════════════════════════════════════════════════════════════════════
 
-@st.cache_data(ttl=120, show_spinner=False)
 def get_budget(year_month: date) -> pd.DataFrame:
     rows = execute_query("""
         SELECT b.*, c.name AS category_name, c.flow_type, s.name AS subcategory_name
@@ -491,7 +477,6 @@ def upsert_budget(category_id: int, subcategory_id: Optional[int], year_month: d
         """, (category_id, subcategory_id, year_month, planned_value, planned_value), fetch=False)
 
 
-@st.cache_data(ttl=120, show_spinner=False)
 def get_budget_vs_actual(year_month: date) -> pd.DataFrame:
     rows = execute_query("""
         SELECT c.name AS category, c.flow_type,
@@ -513,7 +498,6 @@ def get_budget_vs_actual(year_month: date) -> pd.DataFrame:
 # ATIVIDADES
 # ══════════════════════════════════════════════════════════════════════════════
 
-@st.cache_data(ttl=60, show_spinner=False)
 def get_activities() -> pd.DataFrame:
     rows = execute_query("""
         SELECT * FROM activities
@@ -592,7 +576,6 @@ def delete_recurrence_group_activities(group_id: str):
     )
 
 
-@st.cache_data(ttl=30, show_spinner=False)
 def get_calendar_events(start_date, end_date) -> pd.DataFrame:
     """
     Retorna atividades com start_time definido (eventos de calendário)
@@ -611,7 +594,6 @@ def get_calendar_events(start_date, end_date) -> pd.DataFrame:
 # PLANO DE AÇÃO (5W2H)
 # ══════════════════════════════════════════════════════════════════════════════
 
-@st.cache_data(ttl=60, show_spinner=False)
 def get_action_plans() -> pd.DataFrame:
     rows = execute_query("""
         SELECT ap.*, a.title AS activity_title
@@ -647,7 +629,6 @@ def delete_action_plan(plan_id: int):
 # NOTIFICAÇÕES
 # ══════════════════════════════════════════════════════════════════════════════
 
-@st.cache_data(ttl=300, show_spinner=False)
 def get_items_for_notification():
     """Retorna contas e atividades que vencem nos próximos 3 dias."""
     rows = execute_query("""

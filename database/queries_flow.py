@@ -3,7 +3,6 @@ database/queries_flow.py
 Queries do módulo Flow — Sessões de trabalho e Diário
 """
 
-import streamlit as st
 import pandas as pd
 from datetime import date, datetime
 from database.connection import execute_query
@@ -13,7 +12,6 @@ from database.connection import execute_query
 # DIÁRIO
 # ══════════════════════════════════════════════════════════════════════════════
 
-@st.cache_data(ttl=60, show_spinner=False)
 def get_diary_entry(entry_date: date) -> dict | None:
     rows = execute_query(
         "SELECT * FROM flow_diary WHERE entry_date=%s LIMIT 1", (entry_date,)
@@ -39,10 +37,8 @@ def save_diary_entry(data: dict):
         """, (data['entry_date'], data.get('went_well'), data.get('could_improve'),
                data.get('gratitude'), data.get('day_score'), data.get('notes')),
              fetch=False)
-    st.cache_data.clear()
 
 
-@st.cache_data(ttl=60, show_spinner=False)
 def get_diary_entries(limit: int = 30) -> pd.DataFrame:
     rows = execute_query("""
         SELECT * FROM flow_diary ORDER BY entry_date DESC LIMIT %s
@@ -64,10 +60,8 @@ def save_flow_session(data: dict):
            data.get('duration_minutes', 0), data.get('pause_count', 0),
            data.get('pause_minutes', 0), data.get('session_score'),
            data.get('notes')), fetch=False)
-    st.cache_data.clear()
 
 
-@st.cache_data(ttl=60, show_spinner=False)
 def get_sessions_daily(session_date: date) -> pd.DataFrame:
     rows = execute_query("""
         SELECT * FROM flow_sessions WHERE session_date=%s ORDER BY started_at DESC
@@ -75,7 +69,6 @@ def get_sessions_daily(session_date: date) -> pd.DataFrame:
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
 
-@st.cache_data(ttl=60, show_spinner=False)
 def get_sessions_weekly(ref_date: date) -> pd.DataFrame:
     """Retorna sessões da semana que contém ref_date (Seg–Dom)."""
     rows = execute_query("""
@@ -91,7 +84,6 @@ def get_sessions_weekly(ref_date: date) -> pd.DataFrame:
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
 
-@st.cache_data(ttl=60, show_spinner=False)
 def get_sessions_monthly(ref_date: date) -> pd.DataFrame:
     """Retorna sessões do mês de ref_date."""
     rows = execute_query("""
@@ -106,7 +98,6 @@ def get_sessions_monthly(ref_date: date) -> pd.DataFrame:
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
 
-@st.cache_data(ttl=60, show_spinner=False)
 def get_flow_summary() -> dict:
     """Totais gerais: total de horas, sessões, média de score."""
     rows = execute_query("""
