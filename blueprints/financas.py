@@ -49,11 +49,15 @@ def cadastros():
 
     subcategories = []
     if df_cats is not None and not df_cats.empty:
-        for _, cat in df_cats.iterrows():
-            df_sub = get_subcategories(int(cat["id"]))
-            if df_sub is not None and not df_sub.empty:
-                for _, s in df_sub.iterrows():
-                    subcategories.append({"id": s["id"], "name": s["name"], "category_id": cat["id"], "category_name": cat["name"]})
+        # Uma única query para TODAS as subcategorias (evita N+1 — antes eram
+        # N queries, uma por categoria, cada uma com sua própria ida ao banco).
+        cat_names = {int(c["id"]): c["name"] for _, c in df_cats.iterrows()}
+        df_sub_all = get_all_subcategories()
+        if df_sub_all is not None and not df_sub_all.empty:
+            for _, s in df_sub_all.iterrows():
+                cid = int(s["category_id"])
+                if cid in cat_names:
+                    subcategories.append({"id": s["id"], "name": s["name"], "category_id": cid, "category_name": cat_names[cid]})
 
     df_bal = get_all_bank_balances()
     banks = df_bal.to_dict("records") if df_bal is not None and not df_bal.empty else []
