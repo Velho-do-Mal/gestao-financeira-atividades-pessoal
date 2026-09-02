@@ -427,24 +427,44 @@ def gerencial():
     view_mode = request.args.get("view", "Ambos")
     is_forecast = {"Previsto": True, "Realizado": False, "Ambos": None}.get(view_mode)
 
-    df_all = get_transactions(start_date=start_d, end_date=end_d)
-    if is_forecast is not None and df_all is not None and not df_all.empty:
-        df_all = df_all[df_all["is_forecast"] == is_forecast]
+    df_period = get_transactions(start_date=start_d, end_date=end_d)
 
-    cashflow = {"months": [], "income": [], "expense": []}
+    cashflow = {"months": [], "income": [], "expense": [], "accumulated": []}
     total_in = total_out = 0.0
     extrato = []
+    df_prev = df_real = None
+
+    if df_period is not None and not df_period.empty:
+        import pandas as pd
+        df_period = df_period.copy()
+
+        # Pie charts (Previsto x Realizado) sempre refletem o período inteiro,
+        # independente do filtro "view" — só o gráfico de fluxo de caixa e o
+        # extrato respeitam o view_mode escolhido.
+        df_prev = df_period[df_period["is_forecast"] == True]
+        df_real = df_period[df_period["is_forecast"] == False]
+
+        df_all = df_period
+        if is_forecast is not None:
+            df_all = df_all[df_all["is_forecast"] == is_forecast]
+
+    else:
+        df_all = df_period
 
     if df_all is not None and not df_all.empty:
-        import pandas as pd
         df_all = df_all.copy()
         df_all["month"] = pd.to_datetime(df_all["due_date"]).dt.to_period("M").dt.to_timestamp()
         grouped = df_all.groupby(["month", "flow_type"])["total_value"].sum().reset_index()
         pivot = grouped.pivot(index="month", columns="flow_type", values="total_value").fillna(0).reset_index()
+        acc = 0.0
         for _, row in pivot.iterrows():
+            inc = float(row.get("Entrada", 0))
+            exp = float(row.get("Saída", 0))
+            acc += inc - exp
             cashflow["months"].append(row["month"].strftime("%b/%y"))
-            cashflow["income"].append(float(row.get("Entrada", 0)))
-            cashflow["expense"].append(float(row.get("Saída", 0)))
+            cashflow["income"].append(inc)
+            cashflow["expense"].append(exp)
+            cashflow["accumulated"].append(acc)
 
         total_in = float(df_all[df_all["flow_type"] == "Entrada"]["total_value"].sum())
         total_out = float(df_all[df_all["flow_type"] == "Saída"]["total_value"].sum())
@@ -458,9 +478,6 @@ def gerencial():
                 "total_value": float(row["total_value"]), "status": row["status"],
                 "bank_name": row.get("bank_name") or "—",
             })
-
-    df_prev = get_transactions(start_date=start_d, end_date=end_d, is_forecast=True)
-    df_real = get_transactions(start_date=start_d, end_date=end_d, is_forecast=False)
 
     def _pie_data(df):
         if df is None or df.empty:

@@ -74,13 +74,18 @@
   var cf = {{ cashflow|tojson }};
   if (cf.months.length) {
     new ApexCharts(document.getElementById('gerencial-cashflow'), {
-      chart: { type: 'bar', height: 280, toolbar: { show: false }, background: 'transparent' },
+      chart: { type: 'line', height: 300, toolbar: { show: false }, background: 'transparent' },
       theme: { mode: 'dark' },
-      series: [{ name: 'Entradas', data: cf.income }, { name: 'Saídas', data: cf.expense }],
+      series: [
+        { name: 'Entradas', type: 'column', data: cf.income },
+        { name: 'Saídas', type: 'column', data: cf.expense },
+        { name: 'Acumulado', type: 'line', data: cf.accumulated },
+      ],
       xaxis: { categories: cf.months, labels: { style: { colors: '#94A3B8' } } },
       yaxis: { labels: { style: { colors: '#94A3B8' } } },
-      colors: ['#10B981', '#EF4444'],
+      colors: ['#10B981', '#EF4444', '#3B82F6'],
       plotOptions: { bar: { borderRadius: 4, columnWidth: '55%' } },
+      stroke: { width: [0, 0, 3], curve: 'smooth' },
       dataLabels: { enabled: false }, grid: { borderColor: '#334155' },
       legend: { labels: { colors: '#94A3B8' } }, tooltip: { theme: 'dark' },
     }).render();
