@@ -7,10 +7,23 @@ CORREÇÕES v2:
     parciais NULL-safe, corrigindo o bug de múltiplos registros com sub=NULL.
 """
 
-from database.connection import db_cursor
+from database.connection import db_cursor, get_db_url
 import logging
+import psycopg2
 
 logger = logging.getLogger(__name__)
+
+# Lock de migração (pg_advisory_lock) — o Procfile/railway.json sobem o
+# Gunicorn com `--workers 2`, e cada worker chama run_all_migrations() na
+# própria inicialização (ver app.py). Sem esse lock, os 2 processos rodam
+# a migração multiusuário (20 tabelas, ALTER/UPDATE/CREATE INDEX) AO MESMO
+# TEMPO contra o mesmo Postgres — isso já causou lock contention real em
+# produção (deadlock/timeout num dos workers, deixando esse worker com
+# "Banco desconectado" pro resto do processo, e deixando o app geral lento
+# enquanto os locks do Postgres ficavam disputados). Com o advisory lock,
+# só um worker por vez roda as migrações; o outro espera (até 60s) e, como
+# tudo é idempotente, a segunda passada é praticamente instantânea.
+_MIGRATION_LOCK_ID = 727181935  # constante arbitrária, só precisa ser igual em todo lugar
 
 
 MIGRATIONS = [
@@ -525,8 +538,31 @@ def run_notifications_migrations():
 def run_all_migrations():
     """
     Executa TODAS as migrations — idempotente (IF NOT EXISTS em tudo).
-    Chamada uma vez na inicialização do app (ver app.py create_app()).
+    Chamada uma vez na inicialização do app, em CADA worker do Gunicorn
+    (ver app.py create_app()) — por isso serializa com um advisory lock do
+    Postgres antes de rodar: só um worker mexe no schema por vez, os
+    outros esperam (a segunda passada de cada um é rápida, pois tudo é
+    idempotente).
     """
+    lock_conn = None
+    got_lock = False
+    try:
+        lock_conn = psycopg2.connect(get_db_url(), connect_timeout=10)
+        lock_conn.autocommit = True
+        with lock_conn.cursor() as cur:
+            cur.execute("SET lock_timeout = '60s'")
+            try:
+                cur.execute("SELECT pg_advisory_lock(%s)", (_MIGRATION_LOCK_ID,))
+                got_lock = True
+            except psycopg2.errors.LockNotAvailable:
+                logger.warning(
+                    "⚠️ Não consegui pegar o lock de migração em 60s (outro worker "
+                    "deve estar migrando) — seguindo mesmo assim, com risco de "
+                    "corrida entre workers."
+                )
+    except Exception as e:
+        logger.warning(f"⚠️ Não consegui abrir conexão para o lock de migração: {e} — seguindo sem lock.")
+
     try:
         # 0. Usuários (precisa existir antes do backfill multiusuário lá no fim)
         from database.migrations_users import run_users_migrations
@@ -564,3 +600,11 @@ def run_all_migrations():
     except Exception as e:
         logger.error(f"❌ run_all_migrations falhou: {e}")
         return False
+    finally:
+        if lock_conn is not None:
+            try:
+                if got_lock:
+                    with lock_conn.cursor() as cur:
+                        cur.execute("SELECT pg_advisory_unlock(%s)", (_MIGRATION_LOCK_ID,))
+            finally:
+                lock_conn.close()
