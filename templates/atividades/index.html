@@ -1,0 +1,174 @@
+{% extends "base.html" %}
+{% block title %}Atividades{% endblock %}
+{% block content %}
+<div class="main-header">
+  <div><h1>📋 Atividades</h1><p>Tarefas e ações — prioridade, prazo e hierarquia.</p></div>
+</div>
+
+<div class="section grid grid-3">
+  <div class="card metric card--accent">
+    <span class="metric__label">📋 Total</span>
+    <span class="metric__value">{{ counts.total }}</span>
+  </div>
+  <div class="card metric card--danger">
+    <span class="metric__label">⚠️ Atrasadas</span>
+    <span class="metric__value">{{ counts.atrasadas }}</span>
+  </div>
+  <div class="card metric card--success">
+    <span class="metric__label">✅ Concluídas</span>
+    <span class="metric__value">{{ counts.concluidas }}</span>
+  </div>
+</div>
+
+<div class="section">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:10px;">
+    <h2 class="section-title" style="margin:0;">📋 Tabela — edição rápida</h2>
+    <p style="margin:0;font-size:12px;color:var(--text-faint);">Edite direto na tabela — salva sozinho</p>
+  </div>
+
+  <form method="get" class="card" style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px;">
+    <div class="field" style="margin:0;"><label>Prioridade</label>
+      <select class="input" name="priority">
+        <option value="">Todas</option>
+        {% for p in priorities %}<option value="{{ p }}" {{ 'selected' if f_priority==p else '' }}>{{ p }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="field" style="margin:0;"><label>Status</label>
+      <select class="input" name="status">
+        <option value="">Todos</option>
+        {% for s in status_list %}<option value="{{ s }}" {{ 'selected' if f_status==s else '' }}>{{ s }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="field" style="margin:0;"><label>Prazo</label>
+      <select class="input" name="quick">
+        <option value="">Todos</option>
+        <option value="hoje" {{ 'selected' if f_quick=='hoje' else '' }}>📅 Hoje</option>
+        <option value="semana" {{ 'selected' if f_quick=='semana' else '' }}>📆 Próximos 7 dias</option>
+      </select>
+    </div>
+    <button type="submit" class="btn btn-primary">Filtrar</button>
+    {% if f_priority or f_status or f_quick %}<a class="btn btn-secondary" href="{{ url_for('atividades.index') }}">✖ Limpar</a>{% endif %}
+  </form>
+
+  <div class="card">
+    <div class="table-scroll">
+    <table class="table sheet-table">
+      <thead><tr>
+        <th style="min-width:220px;">Atividade</th>
+        <th>Pai (hierarquia)</th>
+        <th>Prioridade</th>
+        <th>Início</th>
+        <th>Fim</th>
+        <th>Status</th>
+        <th></th>
+      </tr></thead>
+      <tbody>
+      {% for a in activities %}
+        <tr style="{{ 'background:rgba(239,68,68,0.06);' if a.is_late else '' }}">
+          <td>
+            {% if a.parent_id %}<span style="color:var(--text-faint);">↳ </span>{% endif %}
+            <input class="input sheet-cell" data-url="{{ url_for('atividades.update_field', activity_id=a.id) }}" data-field="title" value="{{ a.title }}">
+            {% if a.is_late %}<div><span class="badge badge-danger" style="margin-top:4px;">⚠️ Atrasada</span></div>{% endif %}
+          </td>
+          <td>
+            <select class="input sheet-cell" data-url="{{ url_for('atividades.update_field', activity_id=a.id) }}" data-field="parent_id">
+              <option value="">— nenhuma —</option>
+              {% for p in parent_options %}
+                {% if p.id != a.id %}<option value="{{ p.id }}" {{ 'selected' if a.parent_id==p.id else '' }}>{{ p.title }}</option>{% endif %}
+              {% endfor %}
+            </select>
+          </td>
+          <td>
+            <select class="input sheet-cell" data-url="{{ url_for('atividades.update_field', activity_id=a.id) }}" data-field="priority">
+              {% for p in priorities %}<option value="{{ p }}" {{ 'selected' if a.priority==p else '' }}>{{ p }}</option>{% endfor %}
+            </select>
+          </td>
+          <td><input class="input sheet-cell" type="date" data-url="{{ url_for('atividades.update_field', activity_id=a.id) }}" data-field="start_date" value="{{ a.start_date.isoformat() if a.start_date else '' }}"></td>
+          <td><input class="input sheet-cell" type="date" data-url="{{ url_for('atividades.update_field', activity_id=a.id) }}" data-field="end_date" value="{{ a.end_date.isoformat() if a.end_date else '' }}"></td>
+          <td>
+            <select class="input sheet-cell" data-url="{{ url_for('atividades.update_field', activity_id=a.id) }}" data-field="status">
+              {% for s in status_list %}<option value="{{ s }}" {{ 'selected' if a.status==s else '' }}>{{ s }}</option>{% endfor %}
+            </select>
+          </td>
+          <td>
+            <form method="post" action="{{ url_for('atividades.delete', activity_id=a.id) }}" onsubmit="return confirm('Excluir esta atividade (e subatividades vinculadas)?');">
+              <button type="submit" class="btn btn-ghost btn-sm">🗑</button>
+            </form>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    <div class="sheet-add-row" data-url="{{ url_for('atividades.create_quick') }}">+ Nova atividade</div>
+    {% if not activities %}
+    <p class="empty-state" style="padding:14px 0 4px;">Nenhuma atividade {{ 'com esses filtros' if f_priority or f_status or f_quick else 'cadastrada ainda' }}.</p>
+    {% endif %}
+  </div>
+</div>
+
+<div class="section">
+  <h2 class="section-title">📅 Agenda — próximos 14 dias</h2>
+  {% if agenda_days %}
+  <div class="grid grid-2">
+    {% for d, items in agenda_days %}
+    <div class="card {{ 'card--danger' if d < today else 'card--accent' }}">
+      <span class="metric__label">{{ d.strftime('%d/%m') }} — {{ ['Segunda','Terça','Quarta','Quinta','Sexta','Sábado','Domingo'][d.weekday()] }}</span>
+      <ul style="margin:8px 0 0;padding-left:18px;">
+        {% for a in items %}<li style="font-size:13.5px;color:var(--text-muted);margin-bottom:4px;">{{ a.title }} <span class="badge badge-muted">{{ a.priority }}</span></li>{% endfor %}
+      </ul>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="card empty-state"><span class="emoji">📅</span><h2>Nada agendado nos próximos 14 dias</h2></div>
+  {% endif %}
+</div>
+
+<div class="section">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+    <h2 class="section-title" style="margin:0;">🗂️ Plano de ação — 5W2H</h2>
+    <p style="margin:0;font-size:12px;color:var(--text-faint);">O quê, por quê, quem, quando, onde, como, quanto</p>
+  </div>
+  <div class="card">
+    <div class="table-scroll">
+    <table class="table sheet-table">
+      <thead><tr><th style="min-width:180px;">Atividade</th><th>O quê</th><th>Por quê</th><th>Quem</th><th>Quando</th><th>Onde</th><th>Como</th><th>Quanto (R$)</th><th>Status</th><th></th></tr></thead>
+      <tbody>
+      {% for p in action_plans %}
+        <tr>
+          <td>
+            <select class="input sheet-cell" data-url="{{ url_for('atividades.update_plan_field', plan_id=p.id) }}" data-field="activity_id">
+              {% for act in activity_options %}<option value="{{ act.id }}" {{ 'selected' if p.activity_id==act.id else '' }}>{{ act.title }}</option>{% endfor %}
+            </select>
+          </td>
+          <td><input class="input sheet-cell" data-url="{{ url_for('atividades.update_plan_field', plan_id=p.id) }}" data-field="what" value="{{ p.what or '' }}"></td>
+          <td><input class="input sheet-cell" data-url="{{ url_for('atividades.update_plan_field', plan_id=p.id) }}" data-field="why" value="{{ p.why or '' }}"></td>
+          <td><input class="input sheet-cell" data-url="{{ url_for('atividades.update_plan_field', plan_id=p.id) }}" data-field="who" value="{{ p.who or '' }}"></td>
+          <td><input class="input sheet-cell" type="date" data-url="{{ url_for('atividades.update_plan_field', plan_id=p.id) }}" data-field="when_date" value="{{ p.when_date.isoformat() if p.when_date else '' }}"></td>
+          <td><input class="input sheet-cell" data-url="{{ url_for('atividades.update_plan_field', plan_id=p.id) }}" data-field="where_place" value="{{ p.where_place or '' }}"></td>
+          <td><input class="input sheet-cell" data-url="{{ url_for('atividades.update_plan_field', plan_id=p.id) }}" data-field="how" value="{{ p.how or '' }}"></td>
+          <td><input class="input sheet-cell" type="number" step="0.01" data-url="{{ url_for('atividades.update_plan_field', plan_id=p.id) }}" data-field="how_much" value="{{ p.how_much or '' }}"></td>
+          <td>
+            <select class="input sheet-cell" data-url="{{ url_for('atividades.update_plan_field', plan_id=p.id) }}" data-field="status">
+              {% for s in ['Pendente', 'Em andamento', 'Concluído'] %}<option value="{{ s }}" {{ 'selected' if p.status==s else '' }}>{{ s }}</option>{% endfor %}
+            </select>
+          </td>
+          <td>
+            <form method="post" action="{{ url_for('atividades.delete_plan', plan_id=p.id) }}" onsubmit="return confirm('Remover este item do 5W2H?');">
+              <button type="submit" class="btn btn-ghost btn-sm">🗑</button>
+            </form>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    {% if activity_options %}
+    <div class="sheet-add-row" data-url="{{ url_for('atividades.create_plan_quick') }}">+ Novo item do plano 5W2H</div>
+    {% else %}
+    <p class="empty-state" style="padding:14px 0 4px;">Crie uma atividade acima antes de montar o plano 5W2H.</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

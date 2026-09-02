@@ -81,8 +81,10 @@ def create_app():
     from blueprints.financas import financas_bp
     app.register_blueprint(financas_bp)
 
+    from blueprints.atividades import atividades_bp
+    app.register_blueprint(atividades_bp)
+
     from blueprints._stub import make_stub_blueprint
-    app.register_blueprint(make_stub_blueprint("atividades", "/atividades", "Atividades", "📋"))
     app.register_blueprint(make_stub_blueprint("habitos", "/habitos", "Hábitos", "🔄"))
     app.register_blueprint(make_stub_blueprint("flow", "/flow", "Flow", "🌊"))
     app.register_blueprint(make_stub_blueprint("saude", "/saude", "Saúde", "💪"))

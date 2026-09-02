@@ -646,9 +646,13 @@ def get_budget_vs_actual(year_month: date) -> pd.DataFrame:
 # ATIVIDADES
 # ══════════════════════════════════════════════════════════════════════════════
 
-def get_activities() -> pd.DataFrame:
-    rows = execute_query("""
+def get_activities(only_standalone: bool = False) -> pd.DataFrame:
+    """Lista atividades. Com only_standalone=True, exclui as vinculadas a uma
+    meta (goal_id preenchido) — essas são geridas dentro do módulo Metas."""
+    where = "WHERE goal_id IS NULL" if only_standalone else ""
+    rows = execute_query(f"""
         SELECT * FROM activities
+        {where}
         ORDER BY COALESCE(parent_id, id), parent_id NULLS FIRST, order_index, title
     """)
     return pd.DataFrame(rows) if rows else pd.DataFrame()
@@ -742,11 +746,15 @@ def get_calendar_events(start_date, end_date) -> pd.DataFrame:
 # PLANO DE AÇÃO (5W2H)
 # ══════════════════════════════════════════════════════════════════════════════
 
-def get_action_plans() -> pd.DataFrame:
-    rows = execute_query("""
+def get_action_plans(only_standalone: bool = False) -> pd.DataFrame:
+    """Lista itens do plano 5W2H. Com only_standalone=True, exclui os das
+    atividades vinculadas a uma meta (geridos dentro do módulo Metas)."""
+    where = "WHERE a.goal_id IS NULL" if only_standalone else ""
+    rows = execute_query(f"""
         SELECT ap.*, a.title AS activity_title
         FROM action_plan ap
         LEFT JOIN activities a ON ap.activity_id = a.id
+        {where}
         ORDER BY ap.when_date, ap.id
     """)
     return pd.DataFrame(rows) if rows else pd.DataFrame()
@@ -760,17 +768,67 @@ def upsert_action_plan(data: dict):
         """, (data.get('activity_id'), data.get('what'), data.get('why'), data.get('who'),
                data.get('when_date'), data.get('where_place'), data.get('how'),
                data.get('how_much'), data.get('status', 'Pendente'), data['id']), fetch=False)
-    else:
-        execute_query("""
-            INSERT INTO action_plan (activity_id, what, why, who, when_date, where_place, how, how_much, status)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
-        """, (data.get('activity_id'), data.get('what'), data.get('why'), data.get('who'),
-               data.get('when_date'), data.get('where_place'), data.get('how'),
-               data.get('how_much'), data.get('status', 'Pendente')), fetch=False)
+        return data['id']
+    rows = execute_query("""
+        INSERT INTO action_plan (activity_id, what, why, who, when_date, where_place, how, how_much, status)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id
+    """, (data.get('activity_id'), data.get('what'), data.get('why'), data.get('who'),
+           data.get('when_date'), data.get('where_place'), data.get('how'),
+           data.get('how_much'), data.get('status', 'Pendente')))
+    return rows[0]['id'] if rows else None
 
 
 def delete_action_plan(plan_id: int):
     execute_query("DELETE FROM action_plan WHERE id=%s", (plan_id,), fetch=False)
+
+
+# Colunas que a tabela editável (estilo Excel) do módulo Atividades pode
+# gravar direto por célula — allowlist fixa (mais ampla que a versão usada
+# em Metas, que só edita título/descrição/datas/status de atividades
+# vinculadas a uma meta).
+ACTIVITY_EDITABLE_FIELDS = {
+    "title", "description", "start_date", "end_date",
+    "priority", "status", "parent_id",
+}
+
+
+def update_activity_field(activity_id: int, field: str, value):
+    """Salva uma célula editada da tabela de Atividades (autosave)."""
+    if field not in ACTIVITY_EDITABLE_FIELDS:
+        raise ValueError(f"Campo não editável: {field}")
+    if field in ("start_date", "end_date"):
+        value = value or None
+    elif field == "parent_id":
+        value = _safe_int(value)
+    else:
+        value = (value or "").strip() or None
+    execute_query(
+        f"UPDATE activities SET {field}=%s, updated_at=NOW() WHERE id=%s",
+        (value, activity_id), fetch=False,
+    )
+
+
+ACTION_PLAN_EDITABLE_FIELDS = {"activity_id", "what", "why", "who", "when_date", "where_place", "how", "how_much", "status"}
+
+
+def update_action_plan_field(plan_id: int, field: str, value):
+    """Salva uma célula editada da tabela 5W2H (autosave)."""
+    if field not in ACTION_PLAN_EDITABLE_FIELDS:
+        raise ValueError(f"Campo não editável: {field}")
+    if field == "when_date":
+        value = value or None
+    elif field == "how_much":
+        value = _safe_float(value, 0.0) or None
+    elif field == "activity_id":
+        value = _safe_int(value)
+        if value is None:
+            raise ValueError("Escolha uma atividade.")
+    else:
+        value = (value or "").strip() or None
+    execute_query(
+        f"UPDATE action_plan SET {field}=%s WHERE id=%s",
+        (value, plan_id), fetch=False,
+    )
 
 
 # ══════════════════════════════════════════════════════════════════════════════
