@@ -37,6 +37,16 @@ def delete_division(div_id: int):
     execute_query("UPDATE workout_divisions SET active=FALSE WHERE id=%s", (div_id,), fetch=False)
 
 
+DIVISION_EDITABLE_FIELDS = {"name", "day_of_week", "muscle_groups"}
+
+
+def update_division_field(div_id: int, field: str, value):
+    if field not in DIVISION_EDITABLE_FIELDS:
+        raise ValueError(f"Campo não editável: {field}")
+    value = (value or "").strip() or None
+    execute_query(f"UPDATE workout_divisions SET {field}=%s WHERE id=%s", (value, div_id), fetch=False)
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # MUSCULAÇÃO — EXERCÍCIOS
 # ══════════════════════════════════════════════════════════════════════════════
@@ -74,6 +84,16 @@ def delete_exercise(ex_id: int):
     execute_query("UPDATE exercises SET active=FALSE WHERE id=%s", (ex_id,), fetch=False)
 
 
+EXERCISE_EDITABLE_FIELDS = {"name", "equipment", "notes"}
+
+
+def update_exercise_field(ex_id: int, field: str, value):
+    if field not in EXERCISE_EDITABLE_FIELDS:
+        raise ValueError(f"Campo não editável: {field}")
+    value = (value or "").strip() or None
+    execute_query(f"UPDATE exercises SET {field}=%s WHERE id=%s", (value, ex_id), fetch=False)
+
+
 def update_exercise_order(ex_id: int, new_order: int):
     """Atualiza order_index de um exercício."""
     execute_query(
@@ -109,6 +129,33 @@ def upsert_exercise_set(data: dict):
 
 def delete_exercise_set(set_id: int):
     execute_query("DELETE FROM exercise_sets WHERE id=%s", (set_id,), fetch=False)
+
+
+SET_EDITABLE_FIELDS = {"set_number", "reps", "weight_kg", "notes"}
+
+
+def _safe_float(val, default=0.0):
+    try:
+        if val is None or val == "":
+            return default
+        return float(str(val).replace(",", "."))
+    except (TypeError, ValueError):
+        return default
+
+
+def update_set_field(set_id: int, field: str, value):
+    if field not in SET_EDITABLE_FIELDS:
+        raise ValueError(f"Campo não editável: {field}")
+    if field in ("set_number", "reps"):
+        try:
+            value = int(value) if value not in (None, "") else None
+        except (TypeError, ValueError):
+            value = None
+    elif field == "weight_kg":
+        value = _safe_float(value, None)
+    else:
+        value = (value or "").strip() or None
+    execute_query(f"UPDATE exercise_sets SET {field}=%s WHERE id=%s", (value, set_id), fetch=False)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -181,6 +228,21 @@ def upsert_food(data: dict):
 
 def delete_food(food_id: int):
     execute_query("UPDATE foods SET active=FALSE WHERE id=%s", (food_id,), fetch=False)
+
+
+FOOD_EDITABLE_FIELDS = {"name", "preparation", "protein_g", "carbs_g", "fat_g"}
+
+
+def update_food_field(food_id: int, field: str, value):
+    if field not in FOOD_EDITABLE_FIELDS:
+        raise ValueError(f"Campo não editável: {field}")
+    if field in ("protein_g", "carbs_g", "fat_g"):
+        value = _safe_float(value, 0.0)
+    else:
+        value = (value or "").strip()
+        if not value:
+            raise ValueError("Nome do alimento não pode ficar em branco.")
+    execute_query(f"UPDATE foods SET {field}=%s WHERE id=%s", (value, food_id), fetch=False)
 
 
 # ══════════════════════════════════════════════════════════════════════════════

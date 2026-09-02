@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Saúde{% endblock %}
+{% block content %}
+<div class="main-header">
+  <div><h1>💪 Saúde</h1><p>Musculação e nutrição.</p></div>
+</div>
+
+<div class="section grid grid-2">
+  <a href="{{ url_for('saude.musculacao') }}" class="card card--hover card--accent" style="text-decoration:none;color:inherit;display:block;">
+    <span class="metric__label">🏋️ Musculação</span>
+    <span class="metric__value">{{ divisions_count }}</span>
+    <span class="metric__delta">{{ 'divisão de treino' if divisions_count == 1 else 'divisões de treino' }} cadastradas</span>
+  </a>
+  <a href="{{ url_for('saude.nutricao') }}" class="card card--hover card--success" style="text-decoration:none;color:inherit;display:block;">
+    <span class="metric__label">🍽️ Nutrição hoje</span>
+    <span class="metric__value">{{ totals.total_kcal|round|int }} kcal</span>
+    <span class="metric__delta">meta: {{ goals.goal_kcal|round|int }} kcal</span>
+  </a>
+</div>
+
+<div class="section card">
+  <h2 class="section-title">🍽️ Macros de hoje</h2>
+  <div class="grid grid-3">
+    <div>
+      <p style="margin:0 0 4px;font-size:12.5px;color:var(--text-faint);">Proteína</p>
+      <div class="progress-bar"><div class="progress-bar__fill {{ 'success' if totals.total_protein >= goals.protein_g else 'warning' }}" style="width:{{ [100, (totals.total_protein / goals.protein_g * 100) if goals.protein_g else 0]|min }}%"></div></div>
+      <p style="margin:4px 0 0;font-size:12px;color:var(--text-muted);">{{ '%.0f'|format(totals.total_protein) }} / {{ '%.0f'|format(goals.protein_g) }} g</p>
+    </div>
+    <div>
+      <p style="margin:0 0 4px;font-size:12.5px;color:var(--text-faint);">Carboidrato</p>
+      <div class="progress-bar"><div class="progress-bar__fill {{ 'success' if totals.total_carbs >= goals.carbs_g else 'warning' }}" style="width:{{ [100, (totals.total_carbs / goals.carbs_g * 100) if goals.carbs_g else 0]|min }}%"></div></div>
+      <p style="margin:4px 0 0;font-size:12px;color:var(--text-muted);">{{ '%.0f'|format(totals.total_carbs) }} / {{ '%.0f'|format(goals.carbs_g) }} g</p>
+    </div>
+    <div>
+      <p style="margin:0 0 4px;font-size:12.5px;color:var(--text-faint);">Gordura</p>
+      <div class="progress-bar"><div class="progress-bar__fill {{ 'success' if totals.total_fat >= goals.fat_g else 'warning' }}" style="width:{{ [100, (totals.total_fat / goals.fat_g * 100) if goals.fat_g else 0]|min }}%"></div></div>
+      <p style="margin:4px 0 0;font-size:12px;color:var(--text-muted);">{{ '%.0f'|format(totals.total_fat) }} / {{ '%.0f'|format(goals.fat_g) }} g</p>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+{% block title %}Nutrição — Saúde{% endblock %}
+{% block content %}
+<div class="main-header">
+  <div>
+    <p style="margin:0 0 4px;"><a href="{{ url_for('saude.index') }}" style="color:#BFDBFE;font-size:12.5px;">← Saúde</a></p>
+    <h1>🍽️ Nutrição</h1>
+  </div>
+  <div style="display:flex;gap:8px;">
+    <a class="btn btn-secondary" href="{{ url_for('saude.foods_list') }}">🥗 Base de alimentos</a>
+    <button class="btn btn-primary" onclick="openModal('modal-nova-refeicao')">+ Refeição</button>
+  </div>
+</div>
+
+<form method="get" class="section card" style="display:flex;gap:14px;align-items:flex-end;">
+  <div class="field" style="margin:0;"><label>Data</label><input class="input" type="date" name="data" value="{{ meal_date.isoformat() }}"></div>
+  <button type="submit" class="btn btn-primary">Ver</button>
+</form>
+
+<div class="section card">
+  <h2 class="section-title">Macros do dia — {{ '%.0f'|format(totals.total_kcal) }} / {{ '%.0f'|format(goals.goal_kcal) }} kcal</h2>
+  <div class="grid grid-3">
+    <div>
+      <p style="margin:0 0 4px;font-size:12.5px;color:var(--text-faint);">Proteína</p>
+      <div class="progress-bar"><div class="progress-bar__fill {{ 'success' if totals.total_protein >= goals.protein_g else 'warning' }}" style="width:{{ [100, (totals.total_protein / goals.protein_g * 100) if goals.protein_g else 0]|min }}%"></div></div>
+      <p style="margin:4px 0 0;font-size:12px;color:var(--text-muted);">{{ '%.0f'|format(totals.total_protein) }} / {{ '%.0f'|format(goals.protein_g) }} g</p>
+    </div>
+    <div>
+      <p style="margin:0 0 4px;font-size:12.5px;color:var(--text-faint);">Carboidrato</p>
+      <div class="progress-bar"><div class="progress-bar__fill {{ 'success' if totals.total_carbs >= goals.carbs_g else 'warning' }}" style="width:{{ [100, (totals.total_carbs / goals.carbs_g * 100) if goals.carbs_g else 0]|min }}%"></div></div>
+      <p style="margin:4px 0 0;font-size:12px;color:var(--text-muted);">{{ '%.0f'|format(totals.total_carbs) }} / {{ '%.0f'|format(goals.carbs_g) }} g</p>
+    </div>
+    <div>
+      <p style="margin:0 0 4px;font-size:12.5px;color:var(--text-faint);">Gordura</p>
+      <div class="progress-bar"><div class="progress-bar__fill {{ 'success' if totals.total_fat >= goals.fat_g else 'warning' }}" style="width:{{ [100, (totals.total_fat / goals.fat_g * 100) if goals.fat_g else 0]|min }}%"></div></div>
+      <p style="margin:4px 0 0;font-size:12px;color:var(--text-muted);">{{ '%.0f'|format(totals.total_fat) }} / {{ '%.0f'|format(goals.fat_g) }} g</p>
+    </div>
+  </div>
+  <details style="margin-top:14px;">
+    <summary style="cursor:pointer;color:var(--text-faint);font-size:12.5px;">⚙️ Ajustar metas de macros</summary>
+    <form method="post" action="{{ url_for('saude.save_goals') }}" class="form-row" style="margin-top:10px;">
+      <div class="field"><label>Proteína (g)</label><input class="input" type="number" step="1" name="protein_g" value="{{ goals.protein_g }}"></div>
+      <div class="field"><label>Carbo (g)</label><input class="input" type="number" step="1" name="carbs_g" value="{{ goals.carbs_g }}"></div>
+      <div class="field"><label>Gordura (g)</label><input class="input" type="number" step="1" name="fat_g" value="{{ goals.fat_g }}"></div>
+      <div class="field"><label>Meta kcal</label><input class="input" type="number" step="1" name="goal_kcal" value="{{ goals.goal_kcal }}"></div>
+      <button type="submit" class="btn btn-primary">Salvar metas</button>
+    </form>
+  </details>
+</div>
+
+<div class="section">
+  <h2 class="section-title">Refeições do dia</h2>
+  {% if meals %}
+  {% for m in meals %}
+  <div class="section card">
+    <div style="display:flex;justify-content:space-between;align-items:center;">
+      <div><strong>{{ m.name }}</strong> {% if m.meal_time %}<span style="color:var(--text-faint);font-size:12.5px;">— {{ m.meal_time.strftime('%H:%M') if m.meal_time.strftime else m.meal_time }}</span>{% endif %}</div>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <span class="badge badge-info">{{ m.kcal|round|int }} kcal</span>
+        <form method="post" action="{{ url_for('saude.delete_meal_route', meal_id=m.id) }}" onsubmit="return confirm('Excluir esta refeição?');">
+          <input type="hidden" name="meal_date" value="{{ meal_date.isoformat() }}">
+          <button type="submit" class="btn btn-ghost btn-sm">🗑</button>
+        </form>
+      </div>
+    </div>
+    {% if m.food_items %}
+    <div class="table-scroll" style="margin-top:10px;">
+    <table class="table table--responsive">
+      <thead><tr><th>Alimento</th><th>Qtd (g)</th><th>Prot.</th><th>Carbo</th><th>Gord.</th><th>Kcal</th><th></th></tr></thead>
+      <tbody>
+      {% for i in m.food_items %}
+        <tr>
+          <td data-label="Alimento">{{ i.food_name }}{% if i.preparation and i.preparation != 'Cru' %} ({{ i.preparation }}){% endif %}</td>
+          <td data-label="Qtd">{{ i.quantity_g }}g</td>
+          <td data-label="Prot.">{{ i.item_protein }}g</td>
+          <td data-label="Carbo">{{ i.item_carbs }}g</td>
+          <td data-label="Gord.">{{ i.item_fat }}g</td>
+          <td data-label="Kcal">{{ i.item_kcal|round|int }}</td>
+          <td>
+            <form method="post" action="{{ url_for('saude.delete_item', item_id=i.id) }}">
+              <input type="hidden" name="meal_date" value="{{ meal_date.isoformat() }}">
+              <button type="submit" class="btn btn-ghost btn-sm">🗑</button>
+            </form>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    {% endif %}
+    <form method="post" action="{{ url_for('saude.add_item', meal_id=m.id) }}" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:12px;">
+      <input type="hidden" name="meal_date" value="{{ meal_date.isoformat() }}">
+      <div class="field" style="margin:0;flex:1;min-width:200px;"><label>Alimento</label>
+        <select class="input" name="food_id" required>
+          {% for f in foods %}<option value="{{ f.id }}">{{ f.name }}{% if f.preparation and f.preparation != 'Cru' %} ({{ f.preparation }}){% endif %}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="field" style="margin:0;"><label>Quantidade (g)</label><input class="input" type="number" name="quantity_g" step="1" min="1" style="width:100px;" required></div>
+      <button type="submit" class="btn btn-secondary btn-sm">+ Adicionar</button>
+    </form>
+  </div>
+  {% endfor %}
+  {% else %}
+  <div class="card empty-state"><span class="emoji">🍽️</span><h2>Nenhuma refeição registrada</h2><p>Clique em "+ Refeição" para começar.</p></div>
+  {% endif %}
+</div>
+
+<div class="modal-overlay" id="modal-nova-refeicao">
+  <div class="modal">
+    <div class="modal__header"><h3>+ Nova refeição</h3><button class="modal__close" onclick="closeModal('modal-nova-refeicao')">&times;</button></div>
+    <form method="post" action="{{ url_for('saude.create_meal') }}">
+      <input type="hidden" name="meal_date" value="{{ meal_date.isoformat() }}">
+      <div class="field"><label>Nome</label><input class="input" type="text" name="name" placeholder="Ex.: Café da manhã" required></div>
+      <div class="field"><label>Horário</label><input class="input" type="time" name="meal_time"></div>
+      <div class="modal__footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('modal-nova-refeicao')">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Adicionar</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

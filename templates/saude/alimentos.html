@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Base de alimentos — Saúde{% endblock %}
+{% block content %}
+<div class="main-header">
+  <div>
+    <p style="margin:0 0 4px;"><a href="{{ url_for('saude.nutricao') }}" style="color:#BFDBFE;font-size:12.5px;">← Nutrição</a></p>
+    <h1>🥗 Base de alimentos</h1>
+    <p>Valores por 100g. Edite direto na tabela — salva sozinho.</p>
+  </div>
+</div>
+
+<form method="get" class="section card" style="display:flex;gap:14px;align-items:flex-end;">
+  <div class="field" style="margin:0;flex:1;"><label>Buscar</label><input class="input" type="text" name="q" value="{{ search }}" placeholder="Ex.: frango"></div>
+  <button type="submit" class="btn btn-primary">Buscar</button>
+  {% if search %}<a class="btn btn-secondary" href="{{ url_for('saude.foods_list') }}">✖ Limpar</a>{% endif %}
+</form>
+
+<div class="section card">
+  <div class="table-scroll">
+  <table class="table sheet-table">
+    <thead><tr><th style="min-width:200px;">Alimento</th><th>Preparo</th><th>Proteína (g)</th><th>Carbo (g)</th><th>Gordura (g)</th><th></th></tr></thead>
+    <tbody>
+    {% for f in foods %}
+      <tr>
+        <td><input class="input sheet-cell" data-url="{{ url_for('saude.update_food_field_route', food_id=f.id) }}" data-field="name" value="{{ f.name }}"></td>
+        <td><input class="input sheet-cell" data-url="{{ url_for('saude.update_food_field_route', food_id=f.id) }}" data-field="preparation" value="{{ f.preparation or '' }}"></td>
+        <td><input class="input sheet-cell" type="number" step="0.1" data-url="{{ url_for('saude.update_food_field_route', food_id=f.id) }}" data-field="protein_g" value="{{ f.protein_g }}"></td>
+        <td><input class="input sheet-cell" type="number" step="0.1" data-url="{{ url_for('saude.update_food_field_route', food_id=f.id) }}" data-field="carbs_g" value="{{ f.carbs_g }}"></td>
+        <td><input class="input sheet-cell" type="number" step="0.1" data-url="{{ url_for('saude.update_food_field_route', food_id=f.id) }}" data-field="fat_g" value="{{ f.fat_g }}"></td>
+        <td>
+          <form method="post" action="{{ url_for('saude.delete_food_route', food_id=f.id) }}" onsubmit="return confirm('Remover este alimento?');">
+            <button type="submit" class="btn btn-ghost btn-sm">🗑</button>
+          </form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <div class="sheet-add-row" data-url="{{ url_for('saude.create_food') }}">+ Novo alimento</div>
+  {% if not foods %}
+  <p class="empty-state" style="padding:14px 0 4px;">Nenhum alimento {{ 'encontrado' if search else 'cadastrado' }}.</p>
+  {% endif %}
+</div>
+{% endblock %}

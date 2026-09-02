@@ -90,8 +90,8 @@ def create_app():
     from blueprints.flow import flow_bp
     app.register_blueprint(flow_bp)
 
-    from blueprints._stub import make_stub_blueprint
-    app.register_blueprint(make_stub_blueprint("saude", "/saude", "Saúde", "💪"))
+    from blueprints.saude import saude_bp
+    app.register_blueprint(saude_bp)
 
     # ─── Digest diário (agendador em processo) ──────────────────────
     if os.getenv("ENABLE_SCHEDULER", "1") == "1" and db_ok:

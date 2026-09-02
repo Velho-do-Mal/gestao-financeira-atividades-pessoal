@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}{{ division.name }} — Musculação{% endblock %}
+{% block content %}
+<div class="main-header">
+  <div>
+    <p style="margin:0 0 4px;"><a href="{{ url_for('saude.musculacao') }}" style="color:#BFDBFE;font-size:12.5px;">← Divisões</a></p>
+    <h1>🏋️ {{ division.name }}</h1>
+    <p>{{ division.day_of_week or '—' }} · {{ division.muscle_groups or '—' }}</p>
+  </div>
+</div>
+
+<div class="section card">
+  <h2 class="section-title">Exercícios</h2>
+  <div class="table-scroll">
+  <table class="table sheet-table">
+    <thead><tr><th style="min-width:200px;">Exercício</th><th>Equipamento</th><th>Notas</th><th></th><th></th></tr></thead>
+    <tbody>
+    {% for e in exercises %}
+      <tr>
+        <td><input class="input sheet-cell" data-url="{{ url_for('saude.update_exercise_field_route', ex_id=e.id) }}" data-field="name" value="{{ e.name }}"></td>
+        <td><input class="input sheet-cell" data-url="{{ url_for('saude.update_exercise_field_route', ex_id=e.id) }}" data-field="equipment" value="{{ e.equipment or '' }}"></td>
+        <td><input class="input sheet-cell" data-url="{{ url_for('saude.update_exercise_field_route', ex_id=e.id) }}" data-field="notes" value="{{ e.notes or '' }}"></td>
+        <td><a class="btn btn-secondary btn-sm" href="{{ url_for('saude.exercise_detail', ex_id=e.id) }}">📈 Séries / log</a></td>
+        <td>
+          <form method="post" action="{{ url_for('saude.delete_exercise_route', ex_id=e.id) }}" onsubmit="return confirm('Excluir este exercício?');">
+            <input type="hidden" name="div_id" value="{{ division.id }}">
+            <button type="submit" class="btn btn-ghost btn-sm">🗑</button>
+          </form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <div class="sheet-add-row" data-url="{{ url_for('saude.create_exercise', div_id=division.id) }}">+ Novo exercício</div>
+  {% if not exercises %}
+  <p class="empty-state" style="padding:14px 0 4px;">Cadastre os exercícios desta divisão.</p>
+  {% endif %}
+</div>
+{% endblock %}
