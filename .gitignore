@@ -15,6 +15,7 @@ build/
 # Variáveis de ambiente
 .env
 .env.*
+!.env.example
 
 # IDEs
 .vscode/

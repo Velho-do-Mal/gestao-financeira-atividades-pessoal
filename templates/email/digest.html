@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="pt-BR">
+<head><meta charset="utf-8"></head>
+<body style="margin:0;padding:0;background:#0F172A;font-family:Arial,Helvetica,sans-serif;color:#F1F5F9;">
+<div style="max-width:640px;margin:0 auto;padding:24px 16px;">
+  <div style="background:linear-gradient(135deg,#1E3A8A 0%,#2563EB 100%);border-radius:14px;padding:22px 26px;margin-bottom:20px;">
+    <p style="margin:0;color:#BFDBFE;font-size:12px;letter-spacing:.08em;text-transform:uppercase;">BK Gestão Pessoal</p>
+    <h1 style="margin:6px 0 0 0;color:#fff;font-size:21px;">Resumo do dia — {{ today.strftime('%d/%m/%Y') }}</h1>
+  </div>
+
+  <div style="background:#1E293B;border:1px solid #334155;border-left:4px solid #EF4444;border-radius:12px;padding:18px 20px;margin-bottom:16px;">
+    <h2 style="margin:0 0 10px 0;color:#FCA5A5;font-size:15px;">🔴 Contas vencidas ({{ overdue|length }})</h2>
+    {% if overdue %}
+    <table style="width:100%;border-collapse:collapse;font-size:13px;">
+      <tbody>
+      {% for t in overdue %}
+        <tr style="border-top:1px solid #334155;">
+          <td style="padding:7px 4px;color:#F1F5F9;">{{ t.description }}{% if t.supplier_name %} <span style="color:#64748B;">({{ t.supplier_name }})</span>{% endif %}</td>
+          <td style="padding:7px 4px;color:#94A3B8;white-space:nowrap;">{{ t.due_date.strftime('%d/%m') }}</td>
+          <td style="padding:7px 4px;text-align:right;white-space:nowrap;color:{{ '#F87171' if t.flow_type=='Saída' else '#34D399' }};">R$ {{ '%.2f'|format(t.value)|replace('.', ',') }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p style="margin:0;color:#94A3B8;font-size:13px;">Nenhuma conta em atraso. 🎉</p>
+    {% endif %}
+  </div>
+
+  <div style="background:#1E293B;border:1px solid #334155;border-left:4px solid #F59E0B;border-radius:12px;padding:18px 20px;margin-bottom:16px;">
+    <h2 style="margin:0 0 10px 0;color:#FCD34D;font-size:15px;">🟡 Vencem hoje ({{ due_today|length }})</h2>
+    {% if due_today %}
+    <table style="width:100%;border-collapse:collapse;font-size:13px;">
+      <tbody>
+      {% for t in due_today %}
+        <tr style="border-top:1px solid #334155;">
+          <td style="padding:7px 4px;color:#F1F5F9;">{{ t.description }}{% if t.supplier_name %} <span style="color:#64748B;">({{ t.supplier_name }})</span>{% endif %}</td>
+          <td style="padding:7px 4px;text-align:right;white-space:nowrap;color:{{ '#F87171' if t.flow_type=='Saída' else '#34D399' }};">R$ {{ '%.2f'|format(t.value)|replace('.', ',') }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p style="margin:0;color:#94A3B8;font-size:13px;">Nada vencendo hoje.</p>
+    {% endif %}
+  </div>
+
+  <div style="background:#1E293B;border:1px solid #334155;border-left:4px solid #3B82F6;border-radius:12px;padding:18px 20px;margin-bottom:16px;">
+    <h2 style="margin:0 0 10px 0;color:#93C5FD;font-size:15px;">📋 Atividades de hoje ({{ activities|length }})</h2>
+    {% if activities %}
+    <table style="width:100%;border-collapse:collapse;font-size:13px;">
+      <tbody>
+      {% for a in activities %}
+        <tr style="border-top:1px solid #334155;">
+          <td style="padding:7px 4px;color:#F1F5F9;">
+            {{ a.title }}
+            {% if a.goal_title %}<br><span style="color:#64748B;font-size:11px;">🎯 {{ a.goal_title }}</span>{% endif %}
+          </td>
+          <td style="padding:7px 4px;text-align:right;white-space:nowrap;color:#94A3B8;">{{ a.priority }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p style="margin:0;color:#94A3B8;font-size:13px;">Nenhuma atividade prevista para hoje.</p>
+    {% endif %}
+  </div>
+
+  <p style="text-align:center;color:#475569;font-size:11px;margin-top:24px;">
+    BK Gestão Pessoal — BK Engenharia e Tecnologia<br>Envio automático diário
+  </p>
+</div>
+</body>
+</html>

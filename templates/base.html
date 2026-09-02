@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="pt-BR" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>{% block title %}BK Gestão Pessoal{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/tokens.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/layout.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/components.css') }}">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/apexcharts/3.45.2/apexcharts.min.js"></script>
+  {% block head %}{% endblock %}
+</head>
+<body>
+{% set nav_items = [
+  ('home.index', '/', '🏠', 'Home'),
+  ('metas.index', '/metas/', '🎯', 'Metas'),
+  ('financas.index', '/financas/', '💼', 'Finanças'),
+  ('atividades.index', '/atividades/', '📋', 'Atividades'),
+  ('habitos.index', '/habitos/', '🔄', 'Hábitos'),
+  ('flow.index', '/flow/', '🌊', 'Flow'),
+  ('saude.index', '/saude/', '💪', 'Saúde'),
+] %}
+
+{% if session.get('logged_in') %}
+<div class="app-shell">
+  <aside class="sidebar">
+    <div class="sidebar__brand">
+      <div class="emoji">🏠</div>
+      <h1>BK Gestão Pessoal</h1>
+      <p>BK Engenharia e Tecnologia</p>
+    </div>
+    <ul class="nav-list">
+      {% for endpoint, href, icon, label in nav_items %}
+      <li>
+        <a class="nav-item {{ 'active' if request.blueprint == endpoint.split('.')[0] else '' }}" href="{{ href }}">
+          <span class="icon">{{ icon }}</span> {{ label }}
+        </a>
+      </li>
+      {% endfor %}
+    </ul>
+    <div class="sidebar__footer">
+      {% if db_ok %}
+      <div class="db-status ok"><span class="dot">●</span> Banco conectado</div>
+      {% else %}
+      <div class="db-status fail"><span class="dot">●</span> Banco desconectado</div>
+      {% endif %}
+      <a class="logout-link" href="{{ url_for('auth.logout') }}">↩ Sair ({{ session.get('username','') }})</a>
+      <p class="sidebar__meta">{{ today.strftime('%d/%m/%Y') }} · v{{ app_version }}</p>
+    </div>
+  </aside>
+
+  <div style="flex:1; min-width:0; display:flex; flex-direction:column;">
+    <header class="topbar">
+      <div class="topbar__brand"><span class="emoji">🏠</span> BK Gestão Pessoal</div>
+      <a class="topbar__logout" href="{{ url_for('auth.logout') }}">↩</a>
+    </header>
+
+    <main class="main">
+      {% block content %}{% endblock %}
+    </main>
+
+    <nav class="bottom-nav">
+      {% for endpoint, href, icon, label in nav_items %}
+      <a class="bottom-nav__item {{ 'active' if request.blueprint == endpoint.split('.')[0] else '' }}" href="{{ href }}">
+        <span class="icon">{{ icon }}</span><span class="label">{{ label }}</span>
+      </a>
+      {% endfor %}
+    </nav>
+  </div>
+</div>
+{% else %}
+<main class="main" style="max-width:480px;margin:0 auto;">
+  {% block auth_content %}{% endblock %}
+</main>
+{% endif %}
+
+<script src="{{ url_for('static', filename='js/app.js') }}"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

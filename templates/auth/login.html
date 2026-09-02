@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Entrar — BK Gestão Pessoal{% endblock %}
+{% block auth_content %}
+<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;">
+  <div class="card" style="width:100%;max-width:380px;">
+    <div style="text-align:center;margin-bottom:22px;">
+      <div style="font-size:40px;">🏠</div>
+      <h1 style="font-size:19px;color:var(--primary-lighter);margin:8px 0 2px;">BK Gestão Pessoal</h1>
+      <p style="color:var(--text-faint);font-size:12px;margin:0;">BK Engenharia e Tecnologia</p>
+    </div>
+
+    {% if error %}
+    <div class="badge badge-danger" style="display:flex;width:100%;margin-bottom:14px;padding:10px 12px;">{{ error }}</div>
+    {% endif %}
+
+    <form method="post">
+      <div class="field">
+        <label for="username">Usuário</label>
+        <input class="input" type="text" id="username" name="username" autocomplete="username" required autofocus>
+      </div>
+      <div class="field">
+        <label for="password">Senha</label>
+        <input class="input" type="password" id="password" name="password" autocomplete="current-password" required>
+      </div>
+      <button type="submit" class="btn btn-primary btn-block">Entrar</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

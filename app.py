@@ -1,154 +1,110 @@
 """
 app.py
-BK Gestão Pessoal — Sistema de Gestão Financeira e Atividades
-BK Engenharia e Tecnologia
-Versão: 2.0.0 | Python 3.13 | Streamlit | PostgreSQL (Neon)
+BK Gestão Pessoal — Application factory (Flask)
 
-CORREÇÕES v2:
-  - notifications_sent: movido de st.session_state (por sessão) para
-    st.cache_resource(ttl=3600) → dispara no máximo uma vez por hora
-    no servidor, independente de quantas sessões abriam o app.
+Migração v3: Streamlit → Flask + HTML/CSS/JS, hospedado no Railway.
 """
 
-import streamlit as st
 import logging
+import os
 from datetime import date
 
-# ─── Configuração da página ────────────────────────────────────────────
-st.set_page_config(
-    page_title="BK Gestão Pessoal",
-    page_icon="🏠",
-    layout="wide",
-    initial_sidebar_state="expanded",
-    menu_items={
-        "About": "BK Gestão Pessoal — Sistema de Gestão Financeira e Atividades\nBK Engenharia e Tecnologia",
-    },
-)
+from flask import Flask, render_template
+from dotenv import load_dotenv
 
-# ─── Inicialização ─────────────────────────────────────────────────────
+load_dotenv()
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ─── CSS Global ────────────────────────────────────────────────────────
-from components.styles import inject_css
-inject_css()
+_db_ready = {"ok": False, "checked": False}
 
-# ─── Detecção de viewport (responsivo) ────────────────────────────────
-# 1ª carga: redireciona com ?_vw=<px> para capturar largura da tela
-# Cargas seguintes: apenas lê o parâmetro, sem overhead
-from utils.responsive import init_responsive
-init_responsive()
 
-# ─── Migração do banco de dados ────────────────────────────────────────
-# Usa session_state (não cache_resource) para garantir que novas migrations
-# rodam mesmo quando o cache do servidor ficou com versão anterior do código.
-if 'db_initialized' not in st.session_state:
+def _ensure_db():
+    """Roda as migrations uma única vez por processo (idempotente)."""
+    if _db_ready["checked"]:
+        return _db_ready["ok"]
     try:
         from database.migrations import run_all_migrations
-        st.session_state['db_initialized'] = run_all_migrations()
+        _db_ready["ok"] = run_all_migrations()
     except Exception as e:
         logger.error(f"Erro nas migrations: {e}")
-        st.session_state['db_initialized'] = False
-
-db_ok = st.session_state.get('db_initialized', False)
-
-
-# ─── Flag de notificações no nível do SERVIDOR ──────────────────────────
-# TTL de 3600s: e-mail é disparado no máximo 1× por hora, independente do
-# número de usuários/sessões simultâneas. Corrige bug original onde cada nova
-# sessão disparava um novo e-mail.
-@st.cache_resource(ttl=3600)
-def _notification_flag():
-    """Estado mutable compartilhado entre sessões (reset automático a cada hora)."""
-    return {"sent": False}
+        _db_ready["ok"] = False
+    _db_ready["checked"] = True
+    return _db_ready["ok"]
 
 
-if db_ok:
-    flag = _notification_flag()
-    if not flag["sent"]:
+def create_app():
+    app = Flask(__name__)
+    app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "dev-secret-troque-em-producao")
+    app.config["SESSION_COOKIE_HTTPONLY"] = True
+    app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+    app.config["TEMPLATES_AUTO_RELOAD"] = os.getenv("FLASK_DEBUG", "0") == "1"
+
+    # ─── Banco de dados ────────────────────────────────────────────
+    db_ok = _ensure_db()
+    app.config["DB_OK"] = db_ok
+
+    @app.context_processor
+    def inject_globals():
+        return {
+            "db_ok": app.config.get("DB_OK", False),
+            "today": date.today(),
+            "app_version": "3.0.0",
+        }
+
+    # ─── Auth (login único) ────────────────────────────────────────
+    from auth import auth_bp, register_auth_guard
+    app.register_blueprint(auth_bp)
+    register_auth_guard(app)
+
+    # ─── Healthcheck (sem login, usado pelo Railway) ───────────────
+    @app.route("/healthz")
+    def healthz():
+        return {"status": "ok", "db": app.config.get("DB_OK", False)}, 200
+
+    # ─── Módulos ────────────────────────────────────────────────────
+    from blueprints.home import home_bp
+    app.register_blueprint(home_bp)
+
+    from blueprints._stub import make_stub_blueprint
+    app.register_blueprint(make_stub_blueprint("financas", "/financas", "Finanças", "💼"))
+    app.register_blueprint(make_stub_blueprint("atividades", "/atividades", "Atividades", "📋"))
+    app.register_blueprint(make_stub_blueprint("metas", "/metas", "Metas", "🎯"))
+    app.register_blueprint(make_stub_blueprint("habitos", "/habitos", "Hábitos", "🔄"))
+    app.register_blueprint(make_stub_blueprint("flow", "/flow", "Flow", "🌊"))
+    app.register_blueprint(make_stub_blueprint("saude", "/saude", "Saúde", "💪"))
+
+    # ─── Digest diário (agendador em processo) ──────────────────────
+    if os.getenv("ENABLE_SCHEDULER", "1") == "1" and db_ok:
         try:
-            from database.queries import get_items_for_notification
-            from utils.notifications import notify_due_items
-            items = get_items_for_notification()
-            if items:
-                notify_due_items(list(items))
-            flag["sent"] = True
+            from scripts.send_digest import start_scheduler
+            start_scheduler(app)
         except Exception as e:
-            logger.warning(f"Falha ao verificar notificações: {e}")
+            logger.warning(f"Não foi possível iniciar o agendador de digest: {e}")
+
+    # ─── Comando manual de teste do digest diário ──────────────────
+    @app.cli.command("send-digest")
+    def send_digest_command():
+        """Dispara o digest diário imediatamente (ignora notification_log)."""
+        from scripts.send_digest import send_digest
+        result = send_digest(app, force=True)
+        print(result)
+
+    # ─── Páginas de erro ─────────────────────────────────────────────
+    @app.errorhandler(404)
+    def not_found(e):
+        return render_template("errors/404.html"), 404
+
+    @app.errorhandler(500)
+    def server_error(e):
+        logger.exception("Erro interno")
+        return render_template("errors/500.html"), 500
+
+    return app
 
 
-# ─── Sidebar de navegação ──────────────────────────────────────────────
-with st.sidebar:
-    st.markdown("""
-    <div style="text-align:center;padding:20px 0 10px 0">
-        <div style="font-size:40px">🏠</div>
-        <h2 style="margin:8px 0 4px 0;color:#93C5FD;font-size:20px">BK Gestão Pessoal</h2>
-        <p style="color:#64748B;font-size:12px;margin:0">BK Engenharia e Tecnologia</p>
-    </div>
-    """, unsafe_allow_html=True)
+app = create_app()
 
-    st.markdown("---")
-
-    page = st.radio(
-        "Navegação",
-        ["🏠 Home", "🏠 Finanças", "📋 Atividades", "🔄 Hábitos", "🌊 Flow", "💪 Saúde"],
-        label_visibility="collapsed",
-    )
-
-    st.markdown("---")
-
-    if db_ok:
-        st.markdown("""
-        <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;
-                    background:#064E3B22;border-radius:8px;border:1px solid #064E3B">
-            <span style="color:#10B981;font-size:10px">●</span>
-            <span style="color:#6EE7B7;font-size:12px">Banco conectado</span>
-        </div>
-        """, unsafe_allow_html=True)
-    else:
-        st.markdown("""
-        <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;
-                    background:#7F1D1D22;border-radius:8px;border:1px solid #7F1D1D">
-            <span style="color:#EF4444;font-size:10px">●</span>
-            <span style="color:#FCA5A5;font-size:12px">Banco desconectado</span>
-        </div>
-        """, unsafe_allow_html=True)
-
-    st.markdown(f"""
-    <p style="color:#475569;font-size:11px;text-align:center;margin-top:16px">
-        {date.today().strftime('%d/%m/%Y')} | v2.0.0
-    </p>
-    """, unsafe_allow_html=True)
-
-
-# ─── Roteamento de páginas ─────────────────────────────────────────────
-if not db_ok:
-    st.error("""
-    ⚠️ **Não foi possível conectar ao banco de dados.**
-
-    Verifique as configurações em `.streamlit/secrets.toml`:
-    ```toml
-    [database]
-    url = "postgresql://..."
-    ```
-    """)
-    st.stop()
-
-if page == "🏠 Home":
-    from pages.home import render
-    render()
-elif page == "🏠 Finanças":
-    from pages.financas import render
-    render()
-elif page == "📋 Atividades":
-    from pages.atividades import render
-    render()
-elif page == "🔄 Hábitos":
-    from pages.habitos import render
-    render()
-elif page == "🌊 Flow":
-    from pages.flow import render
-    render()
-elif page == "💪 Saúde":
-    from pages.saude import render
-    render()
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 8501)), debug=os.getenv("FLASK_DEBUG", "0") == "1")

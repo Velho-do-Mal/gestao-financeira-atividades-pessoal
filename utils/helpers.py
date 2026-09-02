@@ -4,7 +4,6 @@ Funções utilitárias gerais
 """
 
 import pandas as pd
-import streamlit as st
 from datetime import date, datetime
 import io
 import locale
@@ -88,27 +87,6 @@ def month_range(n_months: int = 24):
     from dateutil.relativedelta import relativedelta
     today = date.today().replace(day=1)
     return [today + relativedelta(months=i) for i in range(n_months)]
-
-
-def card_metric(label: str, value: str, delta: str = "", color: str = "#60A5FA", icon: str = "💰"):
-    """Renderiza card de métrica estilizado."""
-    delta_html = f'<p style="color:#94A3B8;font-size:12px;margin:4px 0 0 0">{delta}</p>' if delta else ""
-    st.markdown(f"""
-    <div style="
-        background:linear-gradient(135deg,#1E293B 0%,#0F172A 100%);
-        border:1px solid #334155;
-        border-left:4px solid {color};
-        border-radius:12px;
-        padding:16px 20px;
-        margin-bottom:8px;
-    ">
-        <p style="color:#94A3B8;font-size:12px;margin:0;letter-spacing:0.05em;text-transform:uppercase">
-            {icon} {label}
-        </p>
-        <p style="color:{color};font-size:24px;font-weight:700;margin:4px 0 0 0">{value}</p>
-        {delta_html}
-    </div>
-    """, unsafe_allow_html=True)
 
 
 CHART_COLORS = {

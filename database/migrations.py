@@ -452,17 +452,81 @@ def run_calendar_migrations():
 
 
 
+# ─── METAS (módulo separado) — colunas extras + tabelas de apoio ────────────
+GOALS_MIGRATIONS = [
+    # Unidade de exibição da meta (ex.: "R$", "%", "clientes", "un.")
+    "ALTER TABLE goals ADD COLUMN IF NOT EXISTS unit VARCHAR(20) DEFAULT 'un.'",
+    "ALTER TABLE goals ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()",
+
+    # Vínculo de atividades (plano de ação) a uma meta. Reaproveita 100% a
+    # tabela `activities` (e por consequência `action_plan`/5W2H) já usada
+    # pelo módulo Atividades — cada "serviço" do plano de ação de uma meta
+    # é uma activity com goal_id preenchido.
+    "ALTER TABLE activities ADD COLUMN IF NOT EXISTS goal_id INTEGER REFERENCES goals(id) ON DELETE SET NULL",
+    "CREATE INDEX IF NOT EXISTS idx_activities_goal ON activities(goal_id)",
+
+    # Histórico de check-ins de avanço da meta — permite acompanhar e marcar
+    # o progresso ao longo do tempo (não só editar um valor fixo).
+    """
+    CREATE TABLE IF NOT EXISTS goal_progress_log (
+        id SERIAL PRIMARY KEY,
+        goal_id INTEGER NOT NULL REFERENCES goals(id) ON DELETE CASCADE,
+        log_date DATE NOT NULL DEFAULT CURRENT_DATE,
+        value NUMERIC(15,2) NOT NULL,
+        note TEXT,
+        created_at TIMESTAMP DEFAULT NOW()
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_goal_progress_goal ON goal_progress_log(goal_id)",
+    "CREATE INDEX IF NOT EXISTS idx_goal_progress_date ON goal_progress_log(log_date)",
+]
+
+
+def run_goals_migrations():
+    """Executa migrações do módulo Metas (idempotente)."""
+    try:
+        with db_cursor() as cur:
+            for m in GOALS_MIGRATIONS:
+                cur.execute(m)
+        logger.info("✅ Migrações Metas executadas")
+    except Exception as e:
+        logger.error(f"❌ Erro migrações Metas: {e}")
+        raise
+
+
+# ─── NOTIFICAÇÕES — controle do digest diário por e-mail ────────────────────
+NOTIFICATIONS_MIGRATIONS = [
+    """
+    CREATE TABLE IF NOT EXISTS notification_log (
+        id SERIAL PRIMARY KEY,
+        sent_date DATE NOT NULL UNIQUE,
+        sent_at TIMESTAMP DEFAULT NOW(),
+        overdue_count INTEGER DEFAULT 0,
+        due_today_count INTEGER DEFAULT 0,
+        activities_count INTEGER DEFAULT 0
+    )
+    """,
+]
+
+
+def run_notifications_migrations():
+    """Executa migrações de notificações (idempotente)."""
+    try:
+        with db_cursor() as cur:
+            for m in NOTIFICATIONS_MIGRATIONS:
+                cur.execute(m)
+        logger.info("✅ Migrações Notificações executadas")
+    except Exception as e:
+        logger.error(f"❌ Erro migrações Notificações: {e}")
+        raise
+
+
 # ─── FUNÇÃO UNIFICADA ────────────────────────────────────────────────────────
 def run_all_migrations():
     """
     Executa TODAS as migrations — idempotente (IF NOT EXISTS em tudo).
-    Chamada a cada nova sessão via st.session_state para garantir
-    que novas colunas sejam criadas mesmo com cache de deploy anterior.
+    Chamada uma vez na inicialização do app (ver app.py create_app()).
     """
-    from database.connection import db_cursor
-    import logging
-    logger = logging.getLogger(__name__)
-
     try:
         # 1. Schema base (transactions, activities, categories...)
         run_migrations()
@@ -478,6 +542,12 @@ def run_all_migrations():
 
         # 5. Calendário (colunas extras em activities)
         run_calendar_migrations()
+
+        # 6. Metas (módulo separado)
+        run_goals_migrations()
+
+        # 7. Notificações (digest diário)
+        run_notifications_migrations()
 
         logger.info("✅ Todas as migrations OK")
         return True
