@@ -27,18 +27,17 @@
   {% if suppliers %}
   <div class="card">
     <div class="table-scroll">
-    <table class="table table--responsive">
+    <table class="table sheet-table">
       <thead><tr><th>Nome</th><th>Doc/CNPJ</th><th>E-mail</th><th>Telefone</th><th></th></tr></thead>
       <tbody>
       {% for s in suppliers %}
         <tr>
-          <td data-label="Nome">{{ s.name }}</td>
-          <td data-label="Doc/CNPJ">{{ s.document or '—' }}</td>
-          <td data-label="E-mail">{{ s.email or '—' }}</td>
-          <td data-label="Telefone">{{ s.phone or '—' }}</td>
-          <td data-label="">
-            <button class="btn btn-secondary btn-sm" onclick="openModal('modal-fornecedor-{{ s.id }}')">✏️</button>
-            <form method="post" action="{{ url_for('financas.delete_supplier_route', supplier_id=s.id) }}" style="display:inline;" onsubmit="return confirm('Excluir fornecedor?');">
+          <td><input class="input sheet-cell" data-url="{{ url_for('financas.update_supplier_field_route', supplier_id=s.id) }}" data-field="name" value="{{ s.name }}"></td>
+          <td><input class="input sheet-cell" data-url="{{ url_for('financas.update_supplier_field_route', supplier_id=s.id) }}" data-field="document" value="{{ s.document or '' }}"></td>
+          <td><input class="input sheet-cell" type="email" data-url="{{ url_for('financas.update_supplier_field_route', supplier_id=s.id) }}" data-field="email" value="{{ s.email or '' }}"></td>
+          <td><input class="input sheet-cell" data-url="{{ url_for('financas.update_supplier_field_route', supplier_id=s.id) }}" data-field="phone" value="{{ s.phone or '' }}"></td>
+          <td>
+            <form method="post" action="{{ url_for('financas.delete_supplier_route', supplier_id=s.id) }}" onsubmit="return confirm('Excluir fornecedor?');">
               <button type="submit" class="btn btn-danger btn-sm">🗑</button>
             </form>
           </td>
@@ -48,21 +47,6 @@
     </table>
     </div>
   </div>
-  {% for s in suppliers %}
-  <div class="modal-overlay" id="modal-fornecedor-{{ s.id }}">
-    <div class="modal">
-      <div class="modal__header"><h3>✏️ Editar fornecedor</h3><button class="modal__close" onclick="closeModal('modal-fornecedor-{{ s.id }}')">&times;</button></div>
-      <form method="post" action="{{ url_for('financas.save_supplier') }}">
-        <input type="hidden" name="id" value="{{ s.id }}">
-        {% include "financas/_supplier_fields.html" %}
-        <div class="modal__footer">
-          <button type="button" class="btn btn-secondary" onclick="closeModal('modal-fornecedor-{{ s.id }}')">Cancelar</button>
-          <button type="submit" class="btn btn-primary">Salvar</button>
-        </div>
-      </form>
-    </div>
-  </div>
-  {% endfor %}
   {% else %}
   <div class="card empty-state"><span class="emoji">👤</span><h2>Nenhum fornecedor cadastrado</h2></div>
   {% endif %}
@@ -92,16 +76,19 @@
     {% if categories %}
     <div class="card">
       <div class="table-scroll">
-      <table class="table table--responsive">
+      <table class="table sheet-table">
         <thead><tr><th>Tipo</th><th>Nome</th><th></th></tr></thead>
         <tbody>
         {% for c in categories %}
           <tr>
-            <td data-label="Tipo">{{ c.flow_type }}</td>
-            <td data-label="Nome">{{ c.name }}</td>
-            <td data-label="">
-              <button class="btn btn-secondary btn-sm" onclick="openModal('modal-categoria-{{ c.id }}')">✏️</button>
-              <form method="post" action="{{ url_for('financas.delete_category_route', cat_id=c.id) }}" style="display:inline;" onsubmit="return confirm('Excluir categoria?');">
+            <td>
+              <select class="input sheet-cell" data-url="{{ url_for('financas.update_category_field_route', cat_id=c.id) }}" data-field="flow_type">
+                {% for opt in ['Entrada','Saída','Ambos'] %}<option value="{{ opt }}" {{ 'selected' if c.flow_type==opt else '' }}>{{ opt }}</option>{% endfor %}
+              </select>
+            </td>
+            <td><input class="input sheet-cell" data-url="{{ url_for('financas.update_category_field_route', cat_id=c.id) }}" data-field="name" value="{{ c.name }}"></td>
+            <td>
+              <form method="post" action="{{ url_for('financas.delete_category_route', cat_id=c.id) }}" onsubmit="return confirm('Excluir categoria?');">
                 <button type="submit" class="btn btn-danger btn-sm">🗑</button>
               </form>
             </td>
@@ -111,26 +98,6 @@
       </table>
       </div>
     </div>
-    {% for c in categories %}
-    <div class="modal-overlay" id="modal-categoria-{{ c.id }}">
-      <div class="modal">
-        <div class="modal__header"><h3>✏️ Editar categoria</h3><button class="modal__close" onclick="closeModal('modal-categoria-{{ c.id }}')">&times;</button></div>
-        <form method="post" action="{{ url_for('financas.save_category') }}">
-          <input type="hidden" name="id" value="{{ c.id }}">
-          <div class="field"><label>Tipo</label>
-            <select class="input" name="flow_type">
-              {% for opt in ['Entrada','Saída','Ambos'] %}<option value="{{ opt }}" {{ 'selected' if c.flow_type==opt else '' }}>{{ opt }}</option>{% endfor %}
-            </select>
-          </div>
-          <div class="field"><label>Nome</label><input class="input" type="text" name="name" value="{{ c.name }}" required></div>
-          <div class="modal__footer">
-            <button type="button" class="btn btn-secondary" onclick="closeModal('modal-categoria-{{ c.id }}')">Cancelar</button>
-            <button type="submit" class="btn btn-primary">Salvar</button>
-          </div>
-        </form>
-      </div>
-    </div>
-    {% endfor %}
     {% else %}
     <div class="card empty-state"><span class="emoji">🏷️</span><h2>Nenhuma categoria</h2></div>
     {% endif %}
@@ -144,16 +111,15 @@
     {% if subcategories %}
     <div class="card">
       <div class="table-scroll">
-      <table class="table table--responsive">
+      <table class="table sheet-table">
         <thead><tr><th>Categoria</th><th>Nome</th><th></th></tr></thead>
         <tbody>
         {% for s in subcategories %}
           <tr>
-            <td data-label="Categoria">{{ s.category_name }}</td>
-            <td data-label="Nome">{{ s.name }}</td>
-            <td data-label="">
-              <button class="btn btn-secondary btn-sm" onclick="openModal('modal-subcategoria-{{ s.id }}')">✏️</button>
-              <form method="post" action="{{ url_for('financas.delete_subcategory_route', sub_id=s.id) }}" style="display:inline;" onsubmit="return confirm('Excluir subcategoria?');">
+            <td data-label="Categoria" style="padding:11px 12px;">{{ s.category_name }}</td>
+            <td><input class="input sheet-cell" data-url="{{ url_for('financas.update_subcategory_field_route', sub_id=s.id) }}" data-field="name" value="{{ s.name }}"></td>
+            <td>
+              <form method="post" action="{{ url_for('financas.delete_subcategory_route', sub_id=s.id) }}" onsubmit="return confirm('Excluir subcategoria?');">
                 <button type="submit" class="btn btn-danger btn-sm">🗑</button>
               </form>
             </td>
@@ -163,26 +129,6 @@
       </table>
       </div>
     </div>
-    {% for s in subcategories %}
-    <div class="modal-overlay" id="modal-subcategoria-{{ s.id }}">
-      <div class="modal">
-        <div class="modal__header"><h3>✏️ Editar subcategoria</h3><button class="modal__close" onclick="closeModal('modal-subcategoria-{{ s.id }}')">&times;</button></div>
-        <form method="post" action="{{ url_for('financas.save_subcategory') }}">
-          <input type="hidden" name="id" value="{{ s.id }}">
-          <div class="field"><label>Categoria pai</label>
-            <select class="input" name="category_id">
-              {% for c in categories %}<option value="{{ c.id }}" {{ 'selected' if c.id==s.category_id else '' }}>{{ c.name }}</option>{% endfor %}
-            </select>
-          </div>
-          <div class="field"><label>Nome</label><input class="input" type="text" name="name" value="{{ s.name }}" required></div>
-          <div class="modal__footer">
-            <button type="button" class="btn btn-secondary" onclick="closeModal('modal-subcategoria-{{ s.id }}')">Cancelar</button>
-            <button type="submit" class="btn btn-primary">Salvar</button>
-          </div>
-        </form>
-      </div>
-    </div>
-    {% endfor %}
     {% else %}
     <div class="card empty-state"><span class="emoji">📂</span><h2>Nenhuma subcategoria</h2></div>
     {% endif %}
@@ -246,19 +192,18 @@
   {% if banks %}
   <div class="card">
     <div class="table-scroll">
-    <table class="table table--responsive">
+    <table class="table sheet-table">
       <thead><tr><th>Banco</th><th>Conta</th><th>Agência</th><th>Saldo inicial</th><th>Saldo atual</th><th></th></tr></thead>
       <tbody>
       {% for b in banks %}
         <tr>
-          <td data-label="Banco">{{ b.name }}</td>
-          <td data-label="Conta">{{ b.account or '—' }}</td>
-          <td data-label="Agência">{{ b.agency or '—' }}</td>
-          <td data-label="Saldo inicial">{{ money(b.initial_balance) }}</td>
-          <td data-label="Saldo atual">{{ money(b.current_balance) }}</td>
-          <td data-label="">
-            <button class="btn btn-secondary btn-sm" onclick="openModal('modal-banco-{{ b.id }}')">✏️</button>
-            <form method="post" action="{{ url_for('financas.delete_bank_route', bank_id=b.id) }}" style="display:inline;" onsubmit="return confirm('Excluir banco?');">
+          <td><input class="input sheet-cell" data-url="{{ url_for('financas.update_bank_field_route', bank_id=b.id) }}" data-field="name" value="{{ b.name }}"></td>
+          <td><input class="input sheet-cell" data-url="{{ url_for('financas.update_bank_field_route', bank_id=b.id) }}" data-field="account" value="{{ b.account or '' }}"></td>
+          <td><input class="input sheet-cell" data-url="{{ url_for('financas.update_bank_field_route', bank_id=b.id) }}" data-field="agency" value="{{ b.agency or '' }}"></td>
+          <td><input class="input sheet-cell" type="number" step="0.01" data-url="{{ url_for('financas.update_bank_field_route', bank_id=b.id) }}" data-field="initial_balance" value="{{ b.initial_balance }}"></td>
+          <td data-label="Saldo atual" style="padding:11px 12px;">{{ money(b.current_balance) }}</td>
+          <td>
+            <form method="post" action="{{ url_for('financas.delete_bank_route', bank_id=b.id) }}" onsubmit="return confirm('Excluir banco?');">
               <button type="submit" class="btn btn-danger btn-sm">🗑</button>
             </form>
           </td>
@@ -268,22 +213,6 @@
     </table>
     </div>
   </div>
-  {% for b in banks %}
-  <div class="modal-overlay" id="modal-banco-{{ b.id }}">
-    <div class="modal">
-      <div class="modal__header"><h3>✏️ Editar banco</h3><button class="modal__close" onclick="closeModal('modal-banco-{{ b.id }}')">&times;</button></div>
-      <form method="post" action="{{ url_for('financas.save_bank') }}">
-        <input type="hidden" name="id" value="{{ b.id }}">
-        {% set bank = b %}
-        {% include "financas/_bank_fields.html" %}
-        <div class="modal__footer">
-          <button type="button" class="btn btn-secondary" onclick="closeModal('modal-banco-{{ b.id }}')">Cancelar</button>
-          <button type="submit" class="btn btn-primary">Salvar</button>
-        </div>
-      </form>
-    </div>
-  </div>
-  {% endfor %}
   {% else %}
   <div class="card empty-state"><span class="emoji">🏦</span><h2>Nenhum banco cadastrado</h2></div>
   {% endif %}

@@ -119,6 +119,19 @@ def delete_supplier(supplier_id: int):
     execute_query("UPDATE suppliers SET active=FALSE WHERE id=%s", (supplier_id,), fetch=False)
 
 
+SUPPLIER_EDITABLE_FIELDS = {"name", "document", "email", "phone", "address", "notes"}
+
+
+def update_supplier_field(supplier_id: int, field: str, value):
+    if field not in SUPPLIER_EDITABLE_FIELDS:
+        raise ValueError(f"Campo não editável: {field}")
+    value = (value or "").strip() or None
+    execute_query(
+        f"UPDATE suppliers SET {field}=%s, updated_at=NOW() WHERE id=%s",
+        (value, supplier_id), fetch=False,
+    )
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # CATEGORIAS / SUBCATEGORIAS
 # ══════════════════════════════════════════════════════════════════════════════
@@ -181,6 +194,24 @@ def delete_subcategory(sub_id: int):
     execute_query("UPDATE subcategories SET active=FALSE WHERE id=%s", (sub_id,), fetch=False)
 
 
+def update_category_field(cat_id: int, field: str, value):
+    if field not in {"name", "flow_type"}:
+        raise ValueError(f"Campo não editável: {field}")
+    value = (value or "").strip()
+    if not value:
+        raise ValueError("Nome não pode ficar em branco")
+    execute_query(f"UPDATE categories SET {field}=%s WHERE id=%s", (value, cat_id), fetch=False)
+
+
+def update_subcategory_field(sub_id: int, field: str, value):
+    if field != "name":
+        raise ValueError(f"Campo não editável: {field}")
+    value = (value or "").strip()
+    if not value:
+        raise ValueError("Nome não pode ficar em branco")
+    execute_query("UPDATE subcategories SET name=%s WHERE id=%s", (value, sub_id), fetch=False)
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # BANCOS
 # ══════════════════════════════════════════════════════════════════════════════
@@ -233,6 +264,19 @@ def upsert_bank(data: dict):
 
 def delete_bank(bank_id: int):
     execute_query("UPDATE banks SET active=FALSE WHERE id=%s", (bank_id,), fetch=False)
+
+
+BANK_EDITABLE_FIELDS = {"name", "account", "agency", "initial_balance"}
+
+
+def update_bank_field(bank_id: int, field: str, value):
+    if field not in BANK_EDITABLE_FIELDS:
+        raise ValueError(f"Campo não editável: {field}")
+    if field == "initial_balance":
+        value = _safe_float(value, 0.0)
+    else:
+        value = (value or "").strip() or None
+    execute_query(f"UPDATE banks SET {field}=%s WHERE id=%s", (value, bank_id), fetch=False)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -370,6 +414,52 @@ def update_transaction(transaction_id: int, data: dict):
 
 def delete_transaction(transaction_id: int):
     execute_query("DELETE FROM transactions WHERE id=%s", (transaction_id,), fetch=False)
+
+
+def _safe_float(val, default=0.0):
+    try:
+        if val is None or val == "":
+            return default
+        return float(str(val).replace(",", "."))
+    except (TypeError, ValueError):
+        return default
+
+
+# Colunas que a tabela de Lançamentos edita direto por célula (autosave).
+TRANSACTION_EDITABLE_FIELDS = {
+    "description", "value", "interest", "due_date", "payment_date",
+    "status", "category_id", "subcategory_id", "bank_id", "supplier_id",
+}
+
+
+def update_transaction_field(transaction_id: int, field: str, value):
+    """Salva uma célula editada da tabela de Lançamentos (autosave).
+    Ao editar 'status', mantém is_forecast coerente (Pago => False),
+    igual já fazia update_transaction()."""
+    if field not in TRANSACTION_EDITABLE_FIELDS:
+        raise ValueError(f"Campo não editável: {field}")
+
+    if field in ("category_id", "subcategory_id", "bank_id", "supplier_id"):
+        value = int(value) if value not in (None, "") else None
+    elif field in ("value", "interest"):
+        value = _safe_float(value, 0.0) if value not in (None, "") else 0.0
+    elif field in ("due_date", "payment_date"):
+        value = _safe_date(value)
+    else:
+        value = (value or "").strip() or None
+
+    if field == "status":
+        is_forecast = False if value == "Pago" else True
+        execute_query(
+            "UPDATE transactions SET status=%s, is_forecast=%s, updated_at=NOW() WHERE id=%s",
+            (value, is_forecast, transaction_id), fetch=False,
+        )
+        return
+
+    execute_query(
+        f"UPDATE transactions SET {field}=%s, updated_at=NOW() WHERE id=%s",
+        (value, transaction_id), fetch=False,
+    )
 
 
 def delete_recurrence_group(group_id: str):

@@ -122,21 +122,31 @@
 
 {% if transactions %}
 <div class="section card">
+  <p style="margin:0 0 10px;font-size:12px;color:var(--text-faint);">Edite direto na tabela — salva sozinho ao sair do campo</p>
   <div class="table-scroll">
-  <table class="table table--responsive">
+  <table class="table sheet-table">
     <thead><tr><th>Venc.</th><th>Tipo</th><th>Categoria</th><th>Descrição</th><th>Valor</th><th>Status</th><th></th></tr></thead>
     <tbody>
     {% for t in transactions %}
       <tr>
-        <td data-label="Venc.">{{ t.due_date|brdate }}</td>
-        <td data-label="Tipo">{{ t.flow_type }}</td>
-        <td data-label="Categoria">{{ t.category_name or '—' }}</td>
-        <td data-label="Descrição">{{ t.description or '—' }}</td>
-        <td data-label="Valor">{{ money(t.total_value) }}</td>
-        <td data-label="Status"><span class="badge {{ 'badge-success' if t.status=='Pago' else 'badge-warning' }}">{{ t.status }}</span></td>
-        <td data-label="">
-          <button class="btn btn-secondary btn-sm" onclick="openModal('modal-tx-{{ t.id }}')">✏️</button>
-          <form method="post" action="{{ url_for('financas.delete_transaction_route', tx_id=t.id) }}" style="display:inline;" onsubmit="return confirm('Excluir lançamento?');">
+        <td><input class="input sheet-cell" type="date" data-url="{{ url_for('financas.update_transaction_field_route', tx_id=t.id) }}" data-field="due_date" value="{{ t.due_date.isoformat() if t.due_date else '' }}"></td>
+        <td data-label="Tipo" style="padding:11px 12px;">{{ t.flow_type }}</td>
+        <td>
+          <select class="input sheet-cell" data-url="{{ url_for('financas.update_transaction_field_route', tx_id=t.id) }}" data-field="category_id">
+            <option value="">—</option>
+            {% for c in categories %}<option value="{{ c.id }}" {{ 'selected' if c.id==t.category_id else '' }}>{{ c.name }}</option>{% endfor %}
+          </select>
+        </td>
+        <td><input class="input sheet-cell" data-url="{{ url_for('financas.update_transaction_field_route', tx_id=t.id) }}" data-field="description" value="{{ t.description or '' }}"></td>
+        <td><input class="input sheet-cell" type="number" step="0.01" data-url="{{ url_for('financas.update_transaction_field_route', tx_id=t.id) }}" data-field="value" value="{{ t.value }}"></td>
+        <td>
+          <select class="input sheet-cell" data-url="{{ url_for('financas.update_transaction_field_route', tx_id=t.id) }}" data-field="status">
+            <option value="Não pago" {{ 'selected' if t.status=='Não pago' else '' }}>Não pago</option>
+            <option value="Pago" {{ 'selected' if t.status=='Pago' else '' }}>Pago</option>
+          </select>
+        </td>
+        <td>
+          <form method="post" action="{{ url_for('financas.delete_transaction_route', tx_id=t.id) }}" onsubmit="return confirm('Excluir lançamento?');">
             <button type="submit" class="btn btn-danger btn-sm">🗑</button>
           </form>
         </td>
@@ -146,64 +156,6 @@
   </table>
   </div>
 </div>
-
-{% for t in transactions %}
-<div class="modal-overlay" id="modal-tx-{{ t.id }}">
-  <div class="modal">
-    <div class="modal__header"><h3>✏️ Editar lançamento</h3><button class="modal__close" onclick="closeModal('modal-tx-{{ t.id }}')">&times;</button></div>
-    <form method="post" action="{{ url_for('financas.update_transaction_route', tx_id=t.id) }}">
-      <div class="form-row">
-        <div class="field"><label>Tipo</label>
-          <select class="input" name="flow_type">
-            <option value="Saída" {{ 'selected' if t.flow_type=='Saída' else '' }}>Saída</option>
-            <option value="Entrada" {{ 'selected' if t.flow_type=='Entrada' else '' }}>Entrada</option>
-          </select>
-        </div>
-        <div class="field"><label>Descrição</label><input class="input" type="text" name="description" value="{{ t.description or '' }}"></div>
-      </div>
-      <div class="form-row">
-        <div class="field"><label>Categoria</label>
-          <select class="input" name="category_id">
-            <option value="">—</option>
-            {% for c in categories %}<option value="{{ c.id }}" {{ 'selected' if c.id==t.category_id else '' }}>{{ c.name }}</option>{% endfor %}
-          </select>
-        </div>
-        <div class="field"><label>Subcategoria</label>
-          <select class="input" name="subcategory_id">
-            <option value="">—</option>
-            {% for s in subcategories %}<option value="{{ s.id }}" {{ 'selected' if s.id==t.subcategory_id else '' }}>{{ s.name }}</option>{% endfor %}
-          </select>
-        </div>
-      </div>
-      <div class="form-row">
-        <div class="field"><label>Valor</label><input class="input" type="number" step="0.01" name="value" value="{{ t.value }}"></div>
-        <div class="field"><label>Juros</label><input class="input" type="number" step="0.01" name="interest" value="{{ t.interest }}"></div>
-      </div>
-      <div class="form-row">
-        <div class="field"><label>Banco</label>
-          <select class="input" name="bank_id"><option value="">—</option>
-            {% for b in banks %}<option value="{{ b.id }}" {{ 'selected' if b.id==t.bank_id else '' }}>{{ b.name }}</option>{% endfor %}
-          </select>
-        </div>
-        <div class="field"><label>Vencimento</label><input class="input" type="date" name="due_date" value="{{ t.due_date.isoformat() if t.due_date else '' }}"></div>
-      </div>
-      <div class="form-row">
-        <div class="field"><label>Status</label>
-          <select class="input" name="status">
-            <option value="Não pago" {{ 'selected' if t.status=='Não pago' else '' }}>Não pago</option>
-            <option value="Pago" {{ 'selected' if t.status=='Pago' else '' }}>Pago</option>
-          </select>
-        </div>
-        <div class="field"><label>Data pagamento</label><input class="input" type="date" name="payment_date" value="{{ t.payment_date.isoformat() if t.payment_date else '' }}"></div>
-      </div>
-      <div class="modal__footer">
-        <button type="button" class="btn btn-secondary" onclick="closeModal('modal-tx-{{ t.id }}')">Cancelar</button>
-        <button type="submit" class="btn btn-primary">Salvar</button>
-      </div>
-    </form>
-  </div>
-</div>
-{% endfor %}
 {% else %}
 <div class="card empty-state"><span class="emoji">📝</span><h2>Nenhum lançamento no período</h2></div>
 {% endif %}

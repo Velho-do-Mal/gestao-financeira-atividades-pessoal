@@ -6,14 +6,16 @@ Gerencial e Dashboards. As Metas saíram deste módulo (ver blueprints/metas.py)
 
 from datetime import datetime
 
-from flask import Blueprint, render_template, request, redirect, url_for, flash
+from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
 
 from database.queries import (
-    get_suppliers, upsert_supplier, delete_supplier,
+    get_suppliers, upsert_supplier, delete_supplier, update_supplier_field,
     get_categories, get_subcategories, get_all_subcategories,
     upsert_category, upsert_subcategory, delete_category, delete_subcategory,
-    get_banks, upsert_bank, delete_bank, get_all_bank_balances,
+    update_category_field, update_subcategory_field,
+    get_banks, upsert_bank, delete_bank, get_all_bank_balances, update_bank_field,
     get_transactions, insert_transaction, update_transaction, delete_transaction,
+    update_transaction_field,
     delete_recurrence_group, get_total_initial_balance, build_cashflow_pivot,
 )
 from utils.helpers import df_to_excel_bytes
@@ -26,6 +28,16 @@ def _parse_float(value, default=0.0):
         return float(str(value).replace(",", "."))
     except (TypeError, ValueError):
         return default
+
+
+def _field_update_response(update_fn, *args):
+    """Wrapper comum das rotas de autosave por célula (tabelas editáveis)."""
+    body = request.get_json(silent=True) or {}
+    try:
+        update_fn(*args, body.get("field", ""), body.get("value"))
+    except ValueError as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+    return jsonify({"ok": True})
 
 
 @financas_bp.route("/")
@@ -96,6 +108,11 @@ def save_supplier():
     return redirect(url_for("financas.cadastros", sub="fornecedores"))
 
 
+@financas_bp.route("/fornecedores/<int:supplier_id>/campo", methods=["POST"])
+def update_supplier_field_route(supplier_id):
+    return _field_update_response(update_supplier_field, supplier_id)
+
+
 @financas_bp.route("/fornecedores/<int:supplier_id>/excluir", methods=["POST"])
 def delete_supplier_route(supplier_id):
     delete_supplier(supplier_id)
@@ -117,6 +134,11 @@ def save_category():
     return redirect(url_for("financas.cadastros", sub="categorias"))
 
 
+@financas_bp.route("/categorias/<int:cat_id>/campo", methods=["POST"])
+def update_category_field_route(cat_id):
+    return _field_update_response(update_category_field, cat_id)
+
+
 @financas_bp.route("/categorias/<int:cat_id>/excluir", methods=["POST"])
 def delete_category_route(cat_id):
     delete_category(cat_id)
@@ -135,6 +157,11 @@ def save_subcategory():
         upsert_subcategory(int(category_id), name, int(sub_id) if sub_id else None)
         flash("Subcategoria salva.", "success")
     return redirect(url_for("financas.cadastros", sub="categorias"))
+
+
+@financas_bp.route("/subcategorias/<int:sub_id>/campo", methods=["POST"])
+def update_subcategory_field_route(sub_id):
+    return _field_update_response(update_subcategory_field, sub_id)
 
 
 @financas_bp.route("/subcategorias/<int:sub_id>/excluir", methods=["POST"])
@@ -160,6 +187,11 @@ def save_bank():
         upsert_bank(data)
         flash("Banco salvo.", "success")
     return redirect(url_for("financas.cadastros", sub="bancos"))
+
+
+@financas_bp.route("/bancos/<int:bank_id>/campo", methods=["POST"])
+def update_bank_field_route(bank_id):
+    return _field_update_response(update_bank_field, bank_id)
 
 
 @financas_bp.route("/bancos/<int:bank_id>/excluir", methods=["POST"])
@@ -331,6 +363,11 @@ def update_transaction_route(tx_id):
     update_transaction(tx_id, data)
     flash("Movimentação atualizada.", "success")
     return redirect(url_for("financas.movimentacoes", sub="lancamentos"))
+
+
+@financas_bp.route("/movimentacoes/<int:tx_id>/campo", methods=["POST"])
+def update_transaction_field_route(tx_id):
+    return _field_update_response(update_transaction_field, tx_id)
 
 
 @financas_bp.route("/movimentacoes/<int:tx_id>/excluir", methods=["POST"])
