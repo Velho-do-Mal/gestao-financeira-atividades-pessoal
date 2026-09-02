@@ -44,8 +44,12 @@ def _field_update_response(update_fn, *args):
 @financas_bp.route("/")
 def index():
     """Página inicial do módulo Finanças: pendências (a quem, valor, quando
-    venceu), com indicador vermelho para o que já está vencido."""
+    venceu), com indicador vermelho para o que já está vencido, e o gráfico
+    de fluxo de caixa (entradas para cima / saídas para baixo + acumulado)."""
     from datetime import date as _date
+    from dateutil.relativedelta import relativedelta
+    import pandas as pd
+
     today = _date.today()
 
     summary = get_home_summary()
@@ -68,11 +72,42 @@ def index():
                 "days_overdue": (today - due_date_obj).days if is_overdue else 0,
             })
 
+    # Fluxo de caixa: entradas para cima, saídas para baixo (valor negativo)
+    # + linha do acumulado. Período e Previsto/Realizado/Ambos escolhidos
+    # pelo usuário; por padrão mostra uma janela de 3 meses antes até 3
+    # meses depois de hoje.
+    cf_start = _parse_date(request.args.get("cf_de")) or (today.replace(day=1) - relativedelta(months=3))
+    cf_end = _parse_date(request.args.get("cf_ate")) or (today.replace(day=1) + relativedelta(months=4) - relativedelta(days=1))
+    cf_view = request.args.get("cf_view", "Ambos")
+    cf_is_forecast = {"Previsto": True, "Realizado": False, "Ambos": None}.get(cf_view)
+
+    cashflow = {"months": [], "income": [], "expense": [], "accumulated": []}
+    df_cf = get_transactions(start_date=cf_start, end_date=cf_end)
+    if df_cf is not None and not df_cf.empty:
+        df_cf = df_cf.copy()
+        if cf_is_forecast is not None:
+            df_cf = df_cf[df_cf["is_forecast"] == cf_is_forecast]
+        if not df_cf.empty:
+            df_cf["month"] = pd.to_datetime(df_cf["due_date"]).dt.to_period("M").dt.to_timestamp()
+            grouped = df_cf.groupby(["month", "flow_type"])["total_value"].sum().reset_index()
+            pivot = grouped.pivot(index="month", columns="flow_type", values="total_value").fillna(0).reset_index()
+            acc = 0.0
+            for _, row in pivot.iterrows():
+                inc = float(row.get("Entrada", 0))
+                exp = float(row.get("Saída", 0))
+                acc += inc - exp
+                cashflow["months"].append(row["month"].strftime("%b/%y"))
+                cashflow["income"].append(inc)
+                cashflow["expense"].append(-exp)
+                cashflow["accumulated"].append(acc)
+
     return render_template(
         "financas/index.html",
         summary=summary,
         pending=pending,
         today=today,
+        cashflow=cashflow,
+        cf_start=cf_start, cf_end=cf_end, cf_view=cf_view,
     )
 
 

@@ -30,6 +30,23 @@
   </div>
 </div>
 
+<div class="section card">
+  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:6px;">
+    <h2 class="section-title" style="margin:0;">💹 Fluxo de caixa</h2>
+  </div>
+  <form method="get" style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px;">
+    <div class="field" style="margin:0;"><label>De</label><input class="input" type="date" name="cf_de" value="{{ cf_start.isoformat() }}"></div>
+    <div class="field" style="margin:0;"><label>Até</label><input class="input" type="date" name="cf_ate" value="{{ cf_end.isoformat() }}"></div>
+    <div class="field" style="margin:0;"><label>Visualização</label>
+      <select class="input" name="cf_view">
+        {% for v in ['Previsto','Realizado','Ambos'] %}<option value="{{ v }}" {{ 'selected' if cf_view==v else '' }}>{{ v }}</option>{% endfor %}
+      </select>
+    </div>
+    <button type="submit" class="btn btn-primary">Filtrar</button>
+  </form>
+  {% if cashflow.months %}<div id="home-cashflow"></div>{% else %}<div class="empty-state"><span class="emoji">💹</span><h2>Sem dados no período</h2></div>{% endif %}
+</div>
+
 <div class="section">
   <h2 class="section-title">📋 Pendências — a quem, quanto e quando vence</h2>
   {% if pending %}
@@ -61,4 +78,37 @@
   <div class="card empty-state"><span class="emoji">✅</span><h2>Nenhuma pendência</h2><p>Todas as contas estão em dia.</p></div>
   {% endif %}
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  var cf = {{ cashflow|tojson }};
+  if (cf.months.length) {
+    new ApexCharts(document.getElementById('home-cashflow'), {
+      chart: { type: 'line', height: 300, toolbar: { show: false }, background: 'transparent' },
+      theme: { mode: 'dark' },
+      series: [
+        { name: 'Entradas', type: 'column', data: cf.income },
+        { name: 'Saídas', type: 'column', data: cf.expense },
+        { name: 'Acumulado', type: 'line', data: cf.accumulated },
+      ],
+      xaxis: { categories: cf.months, labels: { style: { colors: '#94A3B8' } } },
+      yaxis: {
+        labels: {
+          style: { colors: '#94A3B8' },
+          formatter: function (val) { return (val < 0 ? '-' : '') + 'R$ ' + Math.abs(val).toLocaleString('pt-BR', { maximumFractionDigits: 0 }); }
+        }
+      },
+      colors: ['#10B981', '#EF4444', '#3B82F6'],
+      plotOptions: { bar: { borderRadius: 4, columnWidth: '55%' } },
+      stroke: { width: [0, 0, 3], curve: 'smooth' },
+      dataLabels: { enabled: false }, grid: { borderColor: '#334155' },
+      legend: { labels: { colors: '#94A3B8' } },
+      tooltip: {
+        theme: 'dark',
+        y: { formatter: function (val) { return (val < 0 ? '-' : '') + 'R$ ' + Math.abs(val).toLocaleString('pt-BR', { minimumFractionDigits: 2 }); } }
+      },
+    }).render();
+  }
+</script>
 {% endblock %}
