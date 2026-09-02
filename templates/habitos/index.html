@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block title %}Hábitos{% endblock %}
+{% block content %}
+<div class="main-header">
+  <div><h1>🔄 Hábitos</h1><p>Ciclos de 90 dias, checks diários e streaks.</p></div>
+  <button class="btn btn-primary" onclick="openModal('modal-novo-habito')">+ Novo hábito</button>
+</div>
+
+{% if habits %}
+<div class="section grid grid-3">
+  {% for h in habits %}
+  <div class="card card--hover" style="border-left:4px solid {{ h.color }};">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+      <div>
+        <span style="font-size:22px;">{{ h.icon }}</span>
+        <a href="{{ url_for('habitos.detail', habit_id=h.id) }}" style="color:var(--text);text-decoration:none;">
+          <strong style="font-size:15px;margin-left:4px;">{{ h.name }}</strong>
+        </a>
+        <p style="margin:2px 0 0 30px;font-size:12px;color:var(--text-faint);">{{ h.category }} · {{ h.freq_label }}</p>
+      </div>
+      <form method="post" action="{{ url_for('habitos.delete', habit_id=h.id) }}" onsubmit="return confirm('Remover hábito {{ h.name }}?');">
+        <button type="submit" class="btn btn-ghost btn-sm" title="Remover">🗑</button>
+      </form>
+    </div>
+
+    {% if h.cycle_id %}
+    <div style="margin-top:14px;display:flex;align-items:center;justify-content:space-between;">
+      <form method="post" action="{{ url_for('habitos.toggle_today', habit_id=h.id) }}">
+        <button type="submit" class="btn {{ 'btn-primary' if h.done_today else 'btn-secondary' }} btn-sm">
+          {{ '✅ Feito hoje' if h.done_today else '⬜ Marcar hoje' }}
+        </button>
+      </form>
+      <span class="badge {{ 'badge-success' if h.stats.current_streak > 0 else 'badge-muted' }}">🔥 {{ h.stats.current_streak }}</span>
+    </div>
+    <div class="progress-bar" style="margin-top:10px;">
+      <div class="progress-bar__fill {{ 'success' if h.stats.pct_done >= 80 else 'warning' if h.stats.pct_done >= 50 else 'danger' }}" style="width:{{ h.stats.pct_done }}%"></div>
+    </div>
+    <p style="margin:6px 0 0;font-size:12px;color:var(--text-muted);">{{ h.stats.pct_done }}% concluído · dia {{ h.stats.days_elapsed }}/90 · {{ h.stats.days_remaining }} dias restantes</p>
+    {% else %}
+    <form method="post" action="{{ url_for('habitos.cycle_start', habit_id=h.id) }}" style="margin-top:14px;">
+      <button type="submit" class="btn btn-primary btn-sm">▶️ Iniciar ciclo de 90 dias</button>
+    </form>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="section card empty-state"><span class="emoji">🔄</span><h2>Nenhum hábito cadastrado</h2><p>Crie seu primeiro hábito para começar um ciclo de 90 dias.</p></div>
+{% endif %}
+
+<div class="modal-overlay" id="modal-novo-habito">
+  <div class="modal">
+    <div class="modal__header"><h3>+ Novo hábito</h3><button class="modal__close" onclick="closeModal('modal-novo-habito')">&times;</button></div>
+    <form method="post" action="{{ url_for('habitos.create') }}">
+      <div class="form-row">
+        <div class="field"><label>Nome</label><input class="input" type="text" name="name" required></div>
+        <div class="field"><label>Ícone (emoji)</label><input class="input" type="text" name="icon" value="🎯" maxlength="4"></div>
+      </div>
+      <div class="field"><label>Descrição</label><textarea class="input" name="description"></textarea></div>
+      <div class="form-row">
+        <div class="field"><label>Categoria</label><input class="input" type="text" name="category" value="Geral"></div>
+        <div class="field"><label>Cor</label><input class="input" type="color" name="color" value="#3B82F6" style="height:42px;"></div>
+      </div>
+      <div class="field">
+        <label>Frequência</label>
+        <select class="input" name="frequency_type" onchange="
+          document.getElementById('freq-weekdays').style.display = this.value==='Dias da semana' ? 'block' : 'none';
+          document.getElementById('freq-times').style.display = this.value==='X vezes por semana' ? 'block' : 'none';
+        ">
+          {% for f in frequency_types %}<option value="{{ f }}">{{ f }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="field" id="freq-weekdays" style="display:none;">
+        <label>Dias da semana</label>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+          {% for i in range(7) %}
+          <label style="display:flex;align-items:center;gap:4px;font-size:13px;color:var(--text-muted);">
+            <input type="checkbox" name="frequency_weekdays" value="{{ i }}" {{ 'checked' if i < 5 else '' }}> {{ weekday_labels[i] }}
+          </label>
+          {% endfor %}
+        </div>
+      </div>
+      <div class="field" id="freq-times" style="display:none;">
+        <label>Quantas vezes por semana</label>
+        <input class="input" type="number" name="frequency_times" value="3" min="1" max="7">
+      </div>
+      <div class="modal__footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('modal-novo-habito')">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Criar hábito</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

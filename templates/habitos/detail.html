@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block title %}{{ habit.name }} — Hábitos{% endblock %}
+{% block content %}
+<div class="main-header">
+  <div>
+    <p style="margin:0 0 4px;"><a href="{{ url_for('habitos.index') }}" style="color:#BFDBFE;font-size:12.5px;">← Hábitos</a></p>
+    <h1>{{ habit.icon }} {{ habit.name }}</h1>
+    <p>{{ habit.category }} · {{ habit.freq_label }}</p>
+  </div>
+</div>
+
+{% if cycle %}
+<div class="section grid grid-4">
+  <div class="card metric card--accent"><span class="metric__label">Progresso do ciclo</span><span class="metric__value">{{ stats.progress_pct }}%</span><span class="metric__delta">dia {{ stats.days_elapsed }}/90</span></div>
+  <div class="card metric card--success"><span class="metric__label">Concluído</span><span class="metric__value">{{ stats.pct_done }}%</span><span class="metric__delta">{{ stats.done }}/{{ stats.total_programmed }} dias programados</span></div>
+  <div class="card metric card--warning"><span class="metric__label">🔥 Streak atual</span><span class="metric__value">{{ stats.current_streak }}</span><span class="metric__delta">dias seguidos</span></div>
+  <div class="card metric card--info"><span class="metric__label">🏆 Melhor streak</span><span class="metric__value">{{ stats.best_streak }}</span><span class="metric__delta">{{ stats.days_remaining }} dias restantes no ciclo</span></div>
+</div>
+
+<div class="section card">
+  <h2 class="section-title">📅 Ciclo {{ cycle.start_date.strftime('%d/%m/%Y') }} — {{ cycle.end_date.strftime('%d/%m/%Y') }}</h2>
+  <p style="margin:0 0 12px;font-size:12px;color:var(--text-faint);">Clique num dia para marcar/desmarcar.</p>
+  <div id="habit-day-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(34px,1fr));gap:6px;">
+    {% for day in days_grid %}
+    <div class="habit-day {{ 'habit-day--done' if day.done else '' }} {{ 'habit-day--future' if day.future else '' }}"
+         data-date="{{ day.date.isoformat() }}"
+         data-habit="{{ habit.id }}"
+         title="{{ day.date.strftime('%d/%m/%Y') }}"
+         style="aspect-ratio:1;display:flex;align-items:center;justify-content:center;border-radius:6px;font-size:11px;cursor:{{ 'default' if day.future else 'pointer' }};
+                background:{{ 'var(--success)' if day.done else 'var(--bg-elevated)' }};
+                color:{{ '#0F172A' if day.done else 'var(--text-faint)' }};
+                opacity:{{ '0.4' if day.future else '1' }};">
+      {{ day.date.day }}
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% else %}
+<div class="section card empty-state">
+  <span class="emoji">▶️</span><h2>Nenhum ciclo ativo</h2>
+  <p>Inicie um ciclo de 90 dias para começar a acompanhar este hábito.</p>
+  <form method="post" action="{{ url_for('habitos.cycle_start', habit_id=habit.id) }}" style="margin-top:10px;">
+    <button type="submit" class="btn btn-primary">▶️ Iniciar ciclo de 90 dias</button>
+  </form>
+</div>
+{% endif %}
+
+{% if cycles %}
+<div class="section">
+  <h2 class="section-title">🗂 Histórico de ciclos</h2>
+  <div class="card">
+    <div class="table-scroll">
+    <table class="table table--responsive">
+      <thead><tr><th>Início</th><th>Fim</th><th>Status</th></tr></thead>
+      <tbody>
+      {% for c in cycles %}
+        <tr>
+          <td data-label="Início">{{ c.start_date.strftime('%d/%m/%Y') }}</td>
+          <td data-label="Fim">{{ c.end_date.strftime('%d/%m/%Y') }}</td>
+          <td data-label="Status">
+            <span class="badge {{ 'badge-success' if c.status=='Concluído' else 'badge-info' if c.status=='Em andamento' else 'badge-muted' }}">{{ c.status }}</span>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+  document.getElementById('habit-day-grid') && document.getElementById('habit-day-grid').addEventListener('click', function (e) {
+    var el = e.target.closest('.habit-day');
+    if (!el || el.classList.contains('habit-day--future')) return;
+    var habitId = el.dataset.habit;
+    var d = el.dataset.date;
+    apiRequest('/habitos/' + habitId + '/check/' + d + '/toggle', { method: 'POST' })
+      .then(function (res) {
+        if (res.done) {
+          el.style.background = 'var(--success)';
+          el.style.color = '#0F172A';
+        } else {
+          el.style.background = 'var(--bg-elevated)';
+          el.style.color = 'var(--text-faint)';
+        }
+      })
+      .catch(function (err) { toast(err.message || 'Erro ao marcar dia', 'error'); });
+  });
+</script>
+{% endblock %}
