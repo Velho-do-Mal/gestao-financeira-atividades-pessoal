@@ -1,0 +1,10 @@
+<div class="form-row">
+  <div class="field"><label>Nome*</label><input class="input" type="text" name="name" value="{{ s.name if s else '' }}" required></div>
+  <div class="field"><label>CPF/CNPJ</label><input class="input" type="text" name="document" value="{{ s.document if s else '' }}"></div>
+</div>
+<div class="form-row">
+  <div class="field"><label>E-mail</label><input class="input" type="email" name="email" value="{{ s.email if s else '' }}"></div>
+  <div class="field"><label>Telefone</label><input class="input" type="text" name="phone" value="{{ s.phone if s else '' }}"></div>
+</div>
+<div class="field"><label>Endereço</label><textarea class="input" name="address">{{ s.address if s else '' }}</textarea></div>
+<div class="field"><label>Observações</label><textarea class="input" name="notes">{{ s.notes if s else '' }}</textarea></div>

@@ -1,0 +1,306 @@
+{% extends "base.html" %}
+{% block title %}Cadastros — Finanças{% endblock %}
+{% block content %}
+<div class="main-header">
+  <div>
+    <h1>💼 Finanças — Cadastros</h1>
+    <p>Fornecedores, categorias e bancos.</p>
+  </div>
+</div>
+
+<div class="section" style="display:flex;gap:8px;flex-wrap:wrap;">
+  <a class="btn btn-sm {{ 'btn-primary' if sub=='fornecedores' else 'btn-secondary' }}" href="{{ url_for('financas.cadastros', sub='fornecedores') }}">👤 Fornecedores</a>
+  <a class="btn btn-sm {{ 'btn-primary' if sub=='categorias' else 'btn-secondary' }}" href="{{ url_for('financas.cadastros', sub='categorias') }}">🏷️ Categorias</a>
+  <a class="btn btn-sm {{ 'btn-primary' if sub=='bancos' else 'btn-secondary' }}" href="{{ url_for('financas.cadastros', sub='bancos') }}">🏦 Bancos</a>
+  <span style="flex:1"></span>
+  <a class="btn btn-secondary btn-sm" href="{{ url_for('financas.movimentacoes') }}">💸 Movimentações</a>
+  <a class="btn btn-secondary btn-sm" href="{{ url_for('financas.gerencial') }}">📊 Gerencial</a>
+  <a class="btn btn-secondary btn-sm" href="{{ url_for('financas.dashboards') }}">📈 Dashboards</a>
+</div>
+
+{% if sub == 'fornecedores' %}
+<div class="section">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+    <h2 class="section-title" style="margin:0;">👤 Fornecedores</h2>
+    <button class="btn btn-primary btn-sm" onclick="openModal('modal-novo-fornecedor')">+ Novo</button>
+  </div>
+  {% if suppliers %}
+  <div class="card">
+    <div class="table-scroll">
+    <table class="table table--responsive">
+      <thead><tr><th>Nome</th><th>Doc/CNPJ</th><th>E-mail</th><th>Telefone</th><th></th></tr></thead>
+      <tbody>
+      {% for s in suppliers %}
+        <tr>
+          <td data-label="Nome">{{ s.name }}</td>
+          <td data-label="Doc/CNPJ">{{ s.document or '—' }}</td>
+          <td data-label="E-mail">{{ s.email or '—' }}</td>
+          <td data-label="Telefone">{{ s.phone or '—' }}</td>
+          <td data-label="">
+            <button class="btn btn-secondary btn-sm" onclick="openModal('modal-fornecedor-{{ s.id }}')">✏️</button>
+            <form method="post" action="{{ url_for('financas.delete_supplier_route', supplier_id=s.id) }}" style="display:inline;" onsubmit="return confirm('Excluir fornecedor?');">
+              <button type="submit" class="btn btn-danger btn-sm">🗑</button>
+            </form>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+  </div>
+  {% for s in suppliers %}
+  <div class="modal-overlay" id="modal-fornecedor-{{ s.id }}">
+    <div class="modal">
+      <div class="modal__header"><h3>✏️ Editar fornecedor</h3><button class="modal__close" onclick="closeModal('modal-fornecedor-{{ s.id }}')">&times;</button></div>
+      <form method="post" action="{{ url_for('financas.save_supplier') }}">
+        <input type="hidden" name="id" value="{{ s.id }}">
+        {% include "financas/_supplier_fields.html" %}
+        <div class="modal__footer">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('modal-fornecedor-{{ s.id }}')">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Salvar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+  {% endfor %}
+  {% else %}
+  <div class="card empty-state"><span class="emoji">👤</span><h2>Nenhum fornecedor cadastrado</h2></div>
+  {% endif %}
+</div>
+
+<div class="modal-overlay" id="modal-novo-fornecedor">
+  <div class="modal">
+    <div class="modal__header"><h3>+ Novo fornecedor</h3><button class="modal__close" onclick="closeModal('modal-novo-fornecedor')">&times;</button></div>
+    <form method="post" action="{{ url_for('financas.save_supplier') }}">
+      {% set s = None %}
+      {% include "financas/_supplier_fields.html" %}
+      <div class="modal__footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('modal-novo-fornecedor')">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Adicionar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% elif sub == 'categorias' %}
+<div class="section grid grid-2">
+  <div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+      <h2 class="section-title" style="margin:0;">🏷️ Categorias</h2>
+      <button class="btn btn-primary btn-sm" onclick="openModal('modal-nova-categoria')">+ Nova</button>
+    </div>
+    {% if categories %}
+    <div class="card">
+      <div class="table-scroll">
+      <table class="table table--responsive">
+        <thead><tr><th>Tipo</th><th>Nome</th><th></th></tr></thead>
+        <tbody>
+        {% for c in categories %}
+          <tr>
+            <td data-label="Tipo">{{ c.flow_type }}</td>
+            <td data-label="Nome">{{ c.name }}</td>
+            <td data-label="">
+              <button class="btn btn-secondary btn-sm" onclick="openModal('modal-categoria-{{ c.id }}')">✏️</button>
+              <form method="post" action="{{ url_for('financas.delete_category_route', cat_id=c.id) }}" style="display:inline;" onsubmit="return confirm('Excluir categoria?');">
+                <button type="submit" class="btn btn-danger btn-sm">🗑</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      </div>
+    </div>
+    {% for c in categories %}
+    <div class="modal-overlay" id="modal-categoria-{{ c.id }}">
+      <div class="modal">
+        <div class="modal__header"><h3>✏️ Editar categoria</h3><button class="modal__close" onclick="closeModal('modal-categoria-{{ c.id }}')">&times;</button></div>
+        <form method="post" action="{{ url_for('financas.save_category') }}">
+          <input type="hidden" name="id" value="{{ c.id }}">
+          <div class="field"><label>Tipo</label>
+            <select class="input" name="flow_type">
+              {% for opt in ['Entrada','Saída','Ambos'] %}<option value="{{ opt }}" {{ 'selected' if c.flow_type==opt else '' }}>{{ opt }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="field"><label>Nome</label><input class="input" type="text" name="name" value="{{ c.name }}" required></div>
+          <div class="modal__footer">
+            <button type="button" class="btn btn-secondary" onclick="closeModal('modal-categoria-{{ c.id }}')">Cancelar</button>
+            <button type="submit" class="btn btn-primary">Salvar</button>
+          </div>
+        </form>
+      </div>
+    </div>
+    {% endfor %}
+    {% else %}
+    <div class="card empty-state"><span class="emoji">🏷️</span><h2>Nenhuma categoria</h2></div>
+    {% endif %}
+  </div>
+
+  <div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+      <h2 class="section-title" style="margin:0;">📂 Subcategorias</h2>
+      <button class="btn btn-primary btn-sm" onclick="openModal('modal-nova-subcategoria')">+ Nova</button>
+    </div>
+    {% if subcategories %}
+    <div class="card">
+      <div class="table-scroll">
+      <table class="table table--responsive">
+        <thead><tr><th>Categoria</th><th>Nome</th><th></th></tr></thead>
+        <tbody>
+        {% for s in subcategories %}
+          <tr>
+            <td data-label="Categoria">{{ s.category_name }}</td>
+            <td data-label="Nome">{{ s.name }}</td>
+            <td data-label="">
+              <button class="btn btn-secondary btn-sm" onclick="openModal('modal-subcategoria-{{ s.id }}')">✏️</button>
+              <form method="post" action="{{ url_for('financas.delete_subcategory_route', sub_id=s.id) }}" style="display:inline;" onsubmit="return confirm('Excluir subcategoria?');">
+                <button type="submit" class="btn btn-danger btn-sm">🗑</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      </div>
+    </div>
+    {% for s in subcategories %}
+    <div class="modal-overlay" id="modal-subcategoria-{{ s.id }}">
+      <div class="modal">
+        <div class="modal__header"><h3>✏️ Editar subcategoria</h3><button class="modal__close" onclick="closeModal('modal-subcategoria-{{ s.id }}')">&times;</button></div>
+        <form method="post" action="{{ url_for('financas.save_subcategory') }}">
+          <input type="hidden" name="id" value="{{ s.id }}">
+          <div class="field"><label>Categoria pai</label>
+            <select class="input" name="category_id">
+              {% for c in categories %}<option value="{{ c.id }}" {{ 'selected' if c.id==s.category_id else '' }}>{{ c.name }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="field"><label>Nome</label><input class="input" type="text" name="name" value="{{ s.name }}" required></div>
+          <div class="modal__footer">
+            <button type="button" class="btn btn-secondary" onclick="closeModal('modal-subcategoria-{{ s.id }}')">Cancelar</button>
+            <button type="submit" class="btn btn-primary">Salvar</button>
+          </div>
+        </form>
+      </div>
+    </div>
+    {% endfor %}
+    {% else %}
+    <div class="card empty-state"><span class="emoji">📂</span><h2>Nenhuma subcategoria</h2></div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-nova-categoria">
+  <div class="modal">
+    <div class="modal__header"><h3>+ Nova categoria</h3><button class="modal__close" onclick="closeModal('modal-nova-categoria')">&times;</button></div>
+    <form method="post" action="{{ url_for('financas.save_category') }}">
+      <div class="field"><label>Tipo</label>
+        <select class="input" name="flow_type">
+          {% for opt in ['Entrada','Saída','Ambos'] %}<option value="{{ opt }}">{{ opt }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="field"><label>Nome</label><input class="input" type="text" name="name" required></div>
+      <div class="modal__footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('modal-nova-categoria')">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Adicionar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-nova-subcategoria">
+  <div class="modal">
+    <div class="modal__header"><h3>+ Nova subcategoria</h3><button class="modal__close" onclick="closeModal('modal-nova-subcategoria')">&times;</button></div>
+    <form method="post" action="{{ url_for('financas.save_subcategory') }}">
+      <div class="field"><label>Categoria pai</label>
+        <select class="input" name="category_id">
+          {% for c in categories %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="field"><label>Nome</label><input class="input" type="text" name="name" required></div>
+      <div class="modal__footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('modal-nova-subcategoria')">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Adicionar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% else %}
+<div class="section grid grid-2">
+  <div class="card metric card--accent">
+    <span class="metric__label">🏦 Saldo inicial total</span>
+    <span class="metric__value">{{ total_initial|brl }}</span>
+  </div>
+  <div class="card metric {{ 'card--success' if total_current >= total_initial else 'card--danger' }}">
+    <span class="metric__label">💰 Saldo atual total</span>
+    <span class="metric__value">{{ total_current|brl }}</span>
+    <span class="metric__delta">Movimentação: {{ (total_current - total_initial)|brl }}</span>
+  </div>
+</div>
+
+<div class="section">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+    <h2 class="section-title" style="margin:0;">🏦 Bancos e contas</h2>
+    <button class="btn btn-primary btn-sm" onclick="openModal('modal-novo-banco')">+ Novo</button>
+  </div>
+  {% if banks %}
+  <div class="card">
+    <div class="table-scroll">
+    <table class="table table--responsive">
+      <thead><tr><th>Banco</th><th>Conta</th><th>Agência</th><th>Saldo inicial</th><th>Saldo atual</th><th></th></tr></thead>
+      <tbody>
+      {% for b in banks %}
+        <tr>
+          <td data-label="Banco">{{ b.name }}</td>
+          <td data-label="Conta">{{ b.account or '—' }}</td>
+          <td data-label="Agência">{{ b.agency or '—' }}</td>
+          <td data-label="Saldo inicial">{{ b.initial_balance|brl }}</td>
+          <td data-label="Saldo atual">{{ b.current_balance|brl }}</td>
+          <td data-label="">
+            <button class="btn btn-secondary btn-sm" onclick="openModal('modal-banco-{{ b.id }}')">✏️</button>
+            <form method="post" action="{{ url_for('financas.delete_bank_route', bank_id=b.id) }}" style="display:inline;" onsubmit="return confirm('Excluir banco?');">
+              <button type="submit" class="btn btn-danger btn-sm">🗑</button>
+            </form>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+  </div>
+  {% for b in banks %}
+  <div class="modal-overlay" id="modal-banco-{{ b.id }}">
+    <div class="modal">
+      <div class="modal__header"><h3>✏️ Editar banco</h3><button class="modal__close" onclick="closeModal('modal-banco-{{ b.id }}')">&times;</button></div>
+      <form method="post" action="{{ url_for('financas.save_bank') }}">
+        <input type="hidden" name="id" value="{{ b.id }}">
+        {% set bank = b %}
+        {% include "financas/_bank_fields.html" %}
+        <div class="modal__footer">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('modal-banco-{{ b.id }}')">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Salvar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+  {% endfor %}
+  {% else %}
+  <div class="card empty-state"><span class="emoji">🏦</span><h2>Nenhum banco cadastrado</h2></div>
+  {% endif %}
+</div>
+
+<div class="modal-overlay" id="modal-novo-banco">
+  <div class="modal">
+    <div class="modal__header"><h3>+ Novo banco</h3><button class="modal__close" onclick="closeModal('modal-novo-banco')">&times;</button></div>
+    <form method="post" action="{{ url_for('financas.save_bank') }}">
+      {% set bank = None %}
+      {% include "financas/_bank_fields.html" %}
+      <div class="modal__footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('modal-novo-banco')">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Adicionar</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
