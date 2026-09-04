@@ -4,6 +4,7 @@ Dashboard principal — KPIs do dia, fluxo de caixa, resumo do dia
 (atividades/hábitos/treino), metas em andamento e orçado x realizado.
 """
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 
 from flask import Blueprint, render_template, g
@@ -61,9 +62,34 @@ def _today_workout(user_id):
 @home_bp.route("/")
 def index():
     user_id = g.user_id
-    summary = get_home_summary(user_id)
+    today = date.today()
 
-    df_cf = get_cashflow_chart_data(user_id, 6)
+    # As consultas abaixo são independentes entre si (tabelas/módulos
+    # diferentes: finanças, atividades, hábitos, treino, metas, orçamento —
+    # nenhuma depende do resultado de outra). Rodá-las em paralelo, cada uma
+    # pegando sua própria conexão do pool (psycopg2 ThreadedConnectionPool é
+    # thread-safe — ver database/connection.py), troca "soma das latências
+    # de rede até o banco" por "a maior latência única": eram 8 round-trips
+    # sequenciais até o Neon só pra montar a Home, o gargalo de performance
+    # já documentado em connection.py. Se alguma levantar exceção, .result()
+    # a repropaga aqui, igual ao comportamento sequencial anterior.
+    with ThreadPoolExecutor(max_workers=7) as executor:
+        f_summary = executor.submit(get_home_summary, user_id)
+        f_cashflow = executor.submit(get_cashflow_chart_data, user_id, 6)
+        f_activities = executor.submit(get_today_activities, user_id)
+        f_habits = executor.submit(_today_habits, user_id)
+        f_workout = executor.submit(_today_workout, user_id)
+        f_goals = executor.submit(get_goals, user_id, "Em andamento")
+        f_budget = executor.submit(get_budget_vs_actual, user_id, today.replace(day=1))
+
+        summary = f_summary.result()
+        df_cf = f_cashflow.result()
+        activities_today = f_activities.result()
+        habits_today = f_habits.result()
+        workout, workout_exercises, workout_day = f_workout.result()
+        active_goals = f_goals.result()
+        df_bva = f_budget.result()
+
     cashflow = {"months": [], "income": [], "expense": [], "accumulated": []}
     if df_cf is not None and not df_cf.empty:
         for _, row in df_cf.iterrows():
@@ -72,13 +98,6 @@ def index():
             cashflow["expense"].append(float(row["expense"]))
             cashflow["accumulated"].append(float(row["accumulated"]))
 
-    activities_today = get_today_activities(user_id)
-    habits_today = _today_habits(user_id)
-    workout, workout_exercises, workout_day = _today_workout(user_id)
-
-    active_goals = get_goals(user_id, status="Em andamento")
-
-    df_bva = get_budget_vs_actual(user_id, date.today().replace(day=1))
     budget_rows = []
     if df_bva is not None and not df_bva.empty:
         for _, row in df_bva.iterrows():

@@ -9,7 +9,11 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='css/tokens.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/layout.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/components.css') }}">
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/apexcharts/3.45.2/apexcharts.min.js"></script>
+  {# ApexCharts (~180 KB) NÃO é carregado aqui globalmente — cada template
+     que efetivamente desenha um gráfico inclui o script no seu próprio
+     {% block head %} (ver templates/home/index.html e afins). Antes essa
+     lib bloqueava o parse do HTML em TODA página do app, inclusive nas que
+     não têm gráfico nenhum (Atividades, Hábitos, Cadastros, Admin...). #}
   {% block head %}{% endblock %}
 </head>
 <body>

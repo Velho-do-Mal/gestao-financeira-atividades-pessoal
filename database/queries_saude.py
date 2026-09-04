@@ -151,6 +151,22 @@ def get_exercise_sets(user_id: int, exercise_id: int) -> pd.DataFrame:
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
 
+def get_all_exercise_sets_for_division(user_id: int, division_id: int) -> pd.DataFrame:
+    """
+    Retorna as séries de TODOS os exercícios de uma divisão, de uma vez.
+    Usar no lugar de get_exercise_sets() dentro de um loop sobre exercícios
+    (blueprints/saude.py:division_detail) para evitar N+1 — antes eram N
+    queries (uma por exercício), cada uma pagando o round-trip até o banco.
+    """
+    rows = execute_query("""
+        SELECT es.* FROM exercise_sets es
+        JOIN exercises e ON es.exercise_id = e.id
+        WHERE e.division_id=%s AND es.user_id=%s
+        ORDER BY es.exercise_id, es.set_number
+    """, (division_id, user_id))
+    return pd.DataFrame(rows) if rows else pd.DataFrame()
+
+
 def upsert_exercise_set(user_id: int, data: dict):
     if data.get('id'):
         rows = execute_query("""
@@ -358,6 +374,30 @@ def get_meal_items(user_id: int, meal_id: int) -> pd.DataFrame:
         FROM meal_items mi JOIN foods f ON mi.food_id=f.id
         WHERE mi.meal_id=%s AND mi.user_id=%s ORDER BY mi.id
     """, (meal_id, user_id))
+    return pd.DataFrame(rows) if rows else pd.DataFrame()
+
+
+def get_all_meal_items_for_date(user_id: int, meal_date: date) -> pd.DataFrame:
+    """
+    Retorna os itens de TODAS as refeições de um dia, de uma vez (com
+    meal_id na coluna para agrupar em Python). Usar no lugar de
+    get_meal_items() dentro de um loop sobre refeições
+    (blueprints/saude.py:nutricao) para evitar N+1 — antes eram N queries
+    (uma por refeição do dia).
+    """
+    rows = execute_query("""
+        SELECT mi.*, f.name AS food_name, f.preparation,
+               f.protein_g, f.carbs_g, f.fat_g,
+               ROUND(f.protein_g * mi.quantity_g / 100, 1) AS item_protein,
+               ROUND(f.carbs_g   * mi.quantity_g / 100, 1) AS item_carbs,
+               ROUND(f.fat_g     * mi.quantity_g / 100, 1) AS item_fat,
+               ROUND((f.protein_g*4 + f.carbs_g*4 + f.fat_g*9) * mi.quantity_g / 100, 0) AS item_kcal
+        FROM meal_items mi
+        JOIN foods f ON mi.food_id=f.id
+        JOIN meals m ON mi.meal_id=m.id
+        WHERE m.meal_date=%s AND mi.user_id=%s
+        ORDER BY mi.meal_id, mi.id
+    """, (meal_date, user_id))
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
 
