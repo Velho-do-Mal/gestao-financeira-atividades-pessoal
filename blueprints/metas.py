@@ -10,9 +10,9 @@ Módulo Metas — SMART, separado de Finanças. Cada meta tem:
     (reaproveitando a tabela action_plan já usada em Atividades).
 """
 
-from datetime import datetime
+from datetime import datetime, date
 
-from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, g
+from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, g, Response
 
 from database.queries_metas import (
     get_goals, get_goal, upsert_goal, delete_goal,
@@ -90,6 +90,19 @@ def _goal_form_data(form):
         "unit": form.get("unit", "un.").strip() or "un.",
         "status": form.get("status", "Em andamento"),
     }
+
+
+# ─── Relatório em Word ────────────────────────────────────────────────────
+@metas_bp.route("/relatorio")
+def relatorio():
+    from reports.metas_report import build_metas_report
+    buf = build_metas_report(g.user_id, g.username)
+    filename = f"relatorio-metas-{date.today().isoformat()}.docx"
+    return Response(
+        buf.getvalue(),
+        mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
 
 
 # ─── Detalhe da meta ──────────────────────────────────────────────────────

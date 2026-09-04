@@ -573,6 +573,20 @@ def gerencial():
     )
 
 
+@financas_bp.route("/relatorio")
+def relatorio():
+    from flask import Response
+    from datetime import date as _d
+    from reports.financas_report import build_financas_report
+    buf = build_financas_report(g.user_id, g.username, months=6)
+    filename = f"relatorio-financeiro-{_d.today().isoformat()}.docx"
+    return Response(
+        buf.getvalue(),
+        mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
 @financas_bp.route("/gerencial/exportar")
 def export_extrato():
     from datetime import date as _date

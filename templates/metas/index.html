@@ -6,7 +6,10 @@
     <h1>🎯 Metas</h1>
     <p>Metas SMART com acompanhamento de avanço e plano de ação.</p>
   </div>
-  <button class="btn btn-primary" onclick="openModal('modal-nova-meta')">+ Nova meta</button>
+  <div style="display:flex;gap:8px;">
+    <a class="btn btn-secondary" href="{{ url_for('metas.relatorio') }}">📄 Relatório (Word)</a>
+    <button class="btn btn-primary" onclick="openModal('modal-nova-meta')">+ Nova meta</button>
+  </div>
 </div>
 
 <div class="section grid grid-4">

@@ -8,6 +8,7 @@
   </div>
   <div style="display:flex;gap:8px;">
     <a class="btn btn-secondary" href="{{ url_for('saude.foods_list') }}">🥗 Base de alimentos</a>
+    <a class="btn btn-secondary" href="{{ url_for('saude.relatorio_nutricao', data=meal_date.isoformat()) }}">📄 Relatório (Word)</a>
     <button class="btn btn-primary" onclick="openModal('modal-nova-refeicao')">+ Refeição</button>
   </div>
 </div>

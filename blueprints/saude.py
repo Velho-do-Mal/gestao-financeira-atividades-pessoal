@@ -9,7 +9,7 @@ A base de alimentos (`foods`) é compartilhada entre todos os usuários (não
 
 from datetime import datetime, date, time as dtime
 
-from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, g
+from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, g, Response
 
 from database.queries_saude import (
     get_divisions, upsert_division, delete_division, update_division_field,
@@ -70,6 +70,18 @@ def musculacao():
     df = get_divisions(g.user_id)
     divisions = df.to_dict("records") if df is not None and not df.empty else []
     return render_template("saude/musculacao.html", divisions=divisions)
+
+
+@saude_bp.route("/musculacao/relatorio")
+def relatorio_treino():
+    from reports.saude_treino_report import build_treino_report
+    buf = build_treino_report(g.user_id, g.username)
+    filename = f"ficha-de-treino-{date.today().isoformat()}.docx"
+    return Response(
+        buf.getvalue(),
+        mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
 
 
 @saude_bp.route("/musculacao/divisao", methods=["POST"])
@@ -256,6 +268,19 @@ def nutricao():
     return render_template(
         "saude/nutricao.html",
         meal_date=meal_date, meals=meals, totals=totals, goals=goals, foods=foods,
+    )
+
+
+@saude_bp.route("/nutricao/relatorio")
+def relatorio_nutricao():
+    from reports.saude_nutricao_report import build_nutricao_report
+    meal_date = _parse_date(request.args.get("data")) or date.today()
+    buf = build_nutricao_report(g.user_id, g.username, meal_date=meal_date)
+    filename = f"relatorio-nutricao-{meal_date.isoformat()}.docx"
+    return Response(
+        buf.getvalue(),
+        mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
     )
 
 

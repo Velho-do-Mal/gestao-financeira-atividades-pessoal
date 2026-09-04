@@ -5,7 +5,7 @@ Módulo Hábitos — ciclos de 90 dias, checks diários, streaks.
 
 from datetime import datetime, date, timedelta
 
-from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, g
+from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, g, Response
 
 from database.queries_habitos import (
     get_habits, upsert_habit, delete_habit,
@@ -90,6 +90,18 @@ def index():
             h["stats"] = None
 
     return render_template("habitos/index.html", habits=habits, frequency_types=FREQUENCY_TYPES, weekday_labels=WEEKDAY_LABELS)
+
+
+@habitos_bp.route("/relatorio")
+def relatorio():
+    from reports.habitos_report import build_habitos_report
+    buf = build_habitos_report(g.user_id, g.username)
+    filename = f"relatorio-habitos-{date.today().isoformat()}.docx"
+    return Response(
+        buf.getvalue(),
+        mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
 
 
 @habitos_bp.route("/novo", methods=["POST"])

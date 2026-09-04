@@ -3,7 +3,10 @@
 {% block content %}
 <div class="main-header">
   <div><h1>🔄 Hábitos</h1><p>Ciclos de 90 dias, checks diários e streaks.</p></div>
-  <button class="btn btn-primary" onclick="openModal('modal-novo-habito')">+ Novo hábito</button>
+  <div style="display:flex;gap:8px;">
+    <a class="btn btn-secondary" href="{{ url_for('habitos.relatorio') }}">📄 Relatório (Word)</a>
+    <button class="btn btn-primary" onclick="openModal('modal-novo-habito')">+ Novo hábito</button>
+  </div>
 </div>
 
 {% if habits %}
