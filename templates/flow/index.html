@@ -2,9 +2,28 @@
 {% block title %}Flow{% endblock %}
 {% block content %}
 <div class="main-header">
-  <div><h1>🌊 Flow</h1><p>Diário do dia e sessões de trabalho profundo.</p></div>
+  <div><h1>🌊 Flow</h1><p>Meditação, diário do dia e sessões de trabalho profundo.</p></div>
   <a class="btn btn-secondary" href="{{ url_for('flow.records') }}">📊 Registros</a>
 </div>
+
+<div id="flow-meditation-gate" class="section card" style="border:1px solid var(--primary-dark);">
+  <h2 class="section-title">🧘 Passo 1 — Meditação</h2>
+  <p style="color:var(--text-faint);font-size:13px;margin:0 0 14px;">Assista à meditação antes de começar a escrever no diário ou iniciar sua sessão de trabalho.</p>
+  <div style="position:relative;padding-bottom:56.25%;height:0;overflow:hidden;border-radius:12px;background:#000;max-width:640px;margin:0 auto 16px;">
+    <iframe
+      src="{{ meditation_url }}"
+      style="position:absolute;top:0;left:0;width:100%;height:100%;border:0;"
+      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+      allowfullscreen
+      loading="lazy">
+    </iframe>
+  </div>
+  <div style="text-align:center;">
+    <button type="button" class="btn btn-primary" onclick="flowCompleteMeditation()">✅ Concluí a meditação — liberar diário e sessão</button>
+  </div>
+</div>
+
+<div id="flow-main-content" style="display:none;">
 
 <div class="section grid grid-4">
   <div class="card metric card--accent"><span class="metric__label">⏱️ Sessões</span><span class="metric__value">{{ summary.total_sessions or 0 }}</span></div>
@@ -16,6 +35,15 @@
 <div class="section grid grid-2">
   <div class="card">
     <h2 class="section-title">⏱️ Sessão de trabalho profundo</h2>
+
+    <div id="flow-music-off" style="background:var(--surface-2);border-radius:10px;padding:10px 14px;border:1px dashed var(--border);text-align:center;color:var(--text-faint);font-size:12.5px;margin-bottom:10px;">
+      🎵 Música pausada
+    </div>
+    <div id="flow-music-player" style="border-radius:10px;overflow:hidden;margin-bottom:10px;display:none;">
+      <iframe id="flow-music-iframe" src="" style="width:100%;height:80px;border:0;" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen loading="lazy"></iframe>
+    </div>
+    <button type="button" id="flow-btn-music" class="btn btn-secondary btn-sm btn-block" onclick="flowToggleMusic()">🎵 Ligar música</button>
+
     <div style="text-align:center;padding:20px 0;">
       <div id="flow-timer-display" style="font-size:44px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--primary-lighter);">00:00:00</div>
       <p id="flow-timer-status" style="color:var(--text-faint);font-size:12.5px;margin:6px 0 18px;">Pronto para começar</p>
@@ -89,10 +117,57 @@
   </div>
 </div>
 {% endif %}
+
+</div>{# /#flow-main-content #}
 {% endblock %}
 
 {% block scripts %}
 <script>
+  // ── Meditação — passo obrigatório antes de qualquer escrita ─────────────
+  // Libera o diário/sessão só depois de "Concluí a meditação"; usa
+  // sessionStorage com a data de hoje, então volta a pedir a cada novo dia
+  // (e a cada nova aba/sessão do navegador), sem travar quem já assistiu
+  // ao navegar entre Flow e Registros dentro do mesmo dia.
+  var FLOW_MEDITATION_KEY = 'flow_meditation_done_{{ today.isoformat() }}';
+
+  function flowCompleteMeditation() {
+    try { sessionStorage.setItem(FLOW_MEDITATION_KEY, '1'); } catch (e) {}
+    document.getElementById('flow-meditation-gate').style.display = 'none';
+    document.getElementById('flow-main-content').style.display = '';
+  }
+
+  (function flowCheckMeditationGate() {
+    var done = false;
+    try { done = sessionStorage.getItem(FLOW_MEDITATION_KEY) === '1'; } catch (e) {}
+    if (done) {
+      document.getElementById('flow-meditation-gate').style.display = 'none';
+      document.getElementById('flow-main-content').style.display = '';
+    }
+  })();
+
+  // ── Música ambiente da sessão ────────────────────────────────────────────
+  var FLOW_MUSIC_URL = {{ music_url|tojson }};
+  var flowMusicOn = false;
+
+  function flowToggleMusic() {
+    flowMusicOn = !flowMusicOn;
+    var iframe = document.getElementById('flow-music-iframe');
+    var player = document.getElementById('flow-music-player');
+    var off = document.getElementById('flow-music-off');
+    var btn = document.getElementById('flow-btn-music');
+    if (flowMusicOn) {
+      iframe.src = FLOW_MUSIC_URL;
+      player.style.display = '';
+      off.style.display = 'none';
+      btn.textContent = '🔇 Desligar música';
+    } else {
+      iframe.src = '';
+      player.style.display = 'none';
+      off.style.display = '';
+      btn.textContent = '🎵 Ligar música';
+    }
+  }
+
   var wc = {{ week_chart|tojson }};
   new ApexCharts(document.getElementById('flow-week-chart'), {
     chart: { type: 'bar', height: 260, toolbar: { show: false }, background: 'transparent' },
