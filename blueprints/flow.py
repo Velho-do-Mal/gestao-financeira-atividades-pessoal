@@ -19,6 +19,11 @@ flow_bp = Blueprint("flow", __name__, url_prefix="/flow")
 
 WEEKDAY_LABELS = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"]
 
+# Meditação (assistida antes de qualquer escrita) e música ambiente da sessão
+# de Flow — mesmos vídeos da versão original em Streamlit.
+MEDITATION_URL = "https://www.youtube.com/embed/3rqOqB0cy9o?autoplay=1&rel=0"
+MUSIC_URL = "https://www.youtube.com/embed/Gon27l58lt8?autoplay=1&loop=1&playlist=Gon27l58lt8&rel=0"
+
 
 def _parse_date(value):
     if not value:
@@ -61,6 +66,7 @@ def index():
         today=today, diary_today=diary_today, summary=summary,
         sessions_today=sessions_today, week_chart=week_chart,
         diary_entries=diary_entries, weekday_labels=WEEKDAY_LABELS,
+        meditation_url=MEDITATION_URL, music_url=MUSIC_URL,
     )
 
 
