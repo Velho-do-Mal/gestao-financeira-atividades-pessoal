@@ -89,6 +89,19 @@ def db_cursor():
     inatividade) usamos uma conexão avulsa só para esta operação e
     devolvemos a conexão original ao pool marcada para descarte
     (close=True), para não ficar tentando reusar uma conexão morta depois.
+
+    Pre-ping: `.closed` só reflete o que o psycopg2 sabe *localmente* — se
+    o Neon suspender o compute (ou fechar por inatividade) o socket do
+    lado do servidor morre, mas a conexão no pool continua marcada como
+    aberta até a próxima tentativa de uso falhar. É exatamente esse o
+    padrão do bug "Erro interno" reportado: a 1ª requisição depois de um
+    tempo sem tráfego pega essa conexão parada, a query estoura
+    OperationalError → 500; a 2ª requisição (usuário clica em qualquer
+    botão) já pega outra conexão do pool (a morta foi descartada no
+    `finally` da 1ª) e funciona normalmente. Para não expor esse erro ao
+    usuário, testamos a conexão com um "SELECT 1" barato antes de
+    entregá-la — se falhar, descartamos e abrimos uma avulsa na hora, de
+    forma transparente para quem chamou (sem gerar 500).
     """
     pool = _get_pool()
     pooled_conn = pool.getconn()  # sempre precisa voltar via putconn no final
@@ -101,6 +114,21 @@ def db_cursor():
             # só para esta operação e descarta a do pool no final.
             discard_pooled = True
             work_conn = psycopg2.connect(get_db_url(), connect_timeout=10)
+        else:
+            try:
+                with pooled_conn.cursor() as ping_cur:
+                    ping_cur.execute("SELECT 1")
+            except Exception:
+                # Conexão do pool está morta do lado do servidor (Neon
+                # suspenso/idle timeout) mas o psycopg2 não sabia —
+                # descarta e abre uma avulsa só para esta operação, sem
+                # deixar o erro subir para o usuário.
+                discard_pooled = True
+                try:
+                    pooled_conn.rollback()
+                except Exception:
+                    pass
+                work_conn = psycopg2.connect(get_db_url(), connect_timeout=10)
         cur = work_conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         yield cur
         work_conn.commit()
