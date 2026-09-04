@@ -675,12 +675,19 @@ def get_budget_vs_actual(user_id: int, year_month: date) -> pd.DataFrame:
 def get_activities(user_id: int, only_standalone: bool = False) -> pd.DataFrame:
     """Lista atividades do usuário. Com only_standalone=True, exclui as
     vinculadas a uma meta (goal_id preenchido) — essas são geridas dentro do
-    módulo Metas."""
+    módulo Metas.
+
+    A ordenação pai/filho de verdade (árvore em pré-ordem, com qualquer
+    profundidade) é montada em Python por quem chama esta função — ver
+    `_build_activity_tree` em blueprints/atividades.py. O ORDER BY aqui é só
+    uma base estável (não tenta mais agrupar pai/filho via truque de SQL,
+    que só funcionava para 1 nível e quebrava a indentação sempre que uma
+    atividade era reatribuída para outro pai)."""
     where = "WHERE user_id=%s AND goal_id IS NULL" if only_standalone else "WHERE user_id=%s"
     rows = execute_query(f"""
         SELECT * FROM activities
         {where}
-        ORDER BY COALESCE(parent_id, id), parent_id NULLS FIRST, order_index, title
+        ORDER BY parent_id NULLS FIRST, order_index, title, id
     """, (user_id,))
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
@@ -705,6 +712,31 @@ def _safe_date(val):
         return None
 
 
+def _would_create_cycle(user_id: int, activity_id: int, new_parent_id: int) -> bool:
+    """Verifica se atribuir `new_parent_id` como pai de `activity_id`
+    criaria um ciclo (ex.: escolher uma subatividade como pai da sua
+    própria atividade-mãe). Sobe a cadeia de pais a partir de
+    `new_parent_id`; se chegar em `activity_id`, é porque `new_parent_id`
+    é descendente dela — atribuir criaria um laço infinito na árvore."""
+    if new_parent_id is None:
+        return False
+    if new_parent_id == activity_id:
+        return True
+    seen = set()
+    current = new_parent_id
+    while current is not None:
+        if current == activity_id:
+            return True
+        if current in seen:
+            break  # ciclo já existente nos dados — não trava, só para de subir
+        seen.add(current)
+        rows = execute_query(
+            "SELECT parent_id FROM activities WHERE id=%s AND user_id=%s", (current, user_id)
+        )
+        current = _safe_int(rows[0]['parent_id']) if rows else None
+    return False
+
+
 def upsert_activity(user_id: int, data: dict):
     act_id      = _safe_int(data.get('id'))
     parent_id   = _safe_int(data.get('parent_id'))
@@ -721,11 +753,15 @@ def upsert_activity(user_id: int, data: dict):
 
     rec_group = data.get('recurrence_group_id') or None
 
-    # parent_id, se informado, precisa ser uma atividade do mesmo usuário.
+    # parent_id, se informado, precisa ser uma atividade do mesmo usuário
+    # e não pode criar um ciclo (ex.: uma subatividade virando "pai" da
+    # própria atividade-mãe).
     if parent_id is not None:
         owner = execute_query("SELECT id FROM activities WHERE id=%s AND user_id=%s", (parent_id, user_id))
         if not owner:
             raise PermissionError("Atividade-pai não encontrada.")
+        if act_id and _would_create_cycle(user_id, act_id, parent_id):
+            raise ValueError("Não é possível usar uma subatividade como atividade-pai — isso criaria um ciclo na hierarquia.")
 
     if act_id:
         rows = execute_query("""
@@ -861,6 +897,8 @@ def update_activity_field(user_id: int, activity_id: int, field: str, value):
             owner = execute_query("SELECT id FROM activities WHERE id=%s AND user_id=%s", (value, user_id))
             if not owner:
                 raise PermissionError("Atividade-pai não encontrada.")
+            if _would_create_cycle(user_id, activity_id, value):
+                raise ValueError("Não é possível usar uma subatividade como atividade-pai — isso criaria um ciclo na hierarquia.")
     else:
         value = (value or "").strip() or None
     rows = execute_query(

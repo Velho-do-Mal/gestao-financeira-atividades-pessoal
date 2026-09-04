@@ -54,42 +54,50 @@
     <div class="table-scroll">
     <table class="table sheet-table">
       <thead><tr>
-        <th style="min-width:220px;">Atividade</th>
+        <th style="min-width:260px;">Atividade</th>
+        <th style="min-width:110px;">Status</th>
+        <th style="min-width:150px;">Prioridade</th>
         <th>Pai (hierarquia)</th>
-        <th>Prioridade</th>
         <th>Início</th>
         <th>Fim</th>
-        <th>Status</th>
         <th></th>
       </tr></thead>
       <tbody>
       {% for a in activities %}
-        <tr style="{{ 'background:rgba(239,68,68,0.06);' if a.is_late else '' }}">
+        <tr style="{{ 'background:rgba(239,68,68,0.06);' if a.is_late else '' }}{{ 'opacity:0.5;' if a.dim else '' }}">
           <td>
-            {% if a.parent_id %}<span style="color:var(--text-faint);">↳ </span>{% endif %}
-            <input class="input sheet-cell" data-url="{{ url_for('atividades.update_field', activity_id=a.id) }}" data-field="title" value="{{ a.title }}">
-            {% if a.is_late %}<div><span class="badge badge-danger" style="margin-top:4px;">⚠️ Atrasada</span></div>{% endif %}
+            <div style="display:flex;align-items:flex-start;">
+              {% if a.depth > 0 %}
+              <span style="flex:0 0 auto;width:{{ a.depth * 20 }}px;display:inline-block;"></span>
+              <span style="color:var(--text-faint);margin-right:4px;line-height:32px;">└</span>
+              {% endif %}
+              <div style="flex:1 1 auto;min-width:0;">
+                <input class="input sheet-cell" data-url="{{ url_for('atividades.update_field', activity_id=a.id) }}" data-field="title" value="{{ a.title }}">
+              </div>
+            </div>
+          </td>
+          <td>
+            <span class="badge {{ a.status_badge.css }}" title="Prazo: {{ a.end_date.strftime('%d/%m/%Y') if a.end_date else 'sem data definida' }}">{{ a.status_badge.icon }} {{ a.status_badge.label }}</span>
+            <select class="input sheet-cell" data-url="{{ url_for('atividades.update_field', activity_id=a.id) }}" data-field="status" style="margin-top:4px;font-size:11.5px;">
+              {% for s in status_list %}<option value="{{ s }}" {{ 'selected' if a.status==s else '' }}>{{ s }}</option>{% endfor %}
+            </select>
+          </td>
+          <td>
+            <span class="badge" style="background:{{ a.priority_badge.color }}26;color:{{ a.priority_badge.color }};white-space:nowrap;">{{ a.priority_badge.emoji }} {{ a.priority_badge.label }}</span>
+            <select class="input sheet-cell" data-url="{{ url_for('atividades.update_field', activity_id=a.id) }}" data-field="priority" style="margin-top:4px;font-size:11.5px;">
+              {% for p in priorities %}<option value="{{ p }}" {{ 'selected' if a.priority==p else '' }}>{{ p }}</option>{% endfor %}
+            </select>
           </td>
           <td>
             <select class="input sheet-cell" data-url="{{ url_for('atividades.update_field', activity_id=a.id) }}" data-field="parent_id">
               <option value="">— nenhuma —</option>
-              {% for p in parent_options %}
-                {% if p.id != a.id %}<option value="{{ p.id }}" {{ 'selected' if a.parent_id==p.id else '' }}>{{ p.title }}</option>{% endif %}
+              {% for p in a.parent_options %}
+                <option value="{{ p.id }}" {{ 'selected' if a.parent_id==p.id else '' }}>{{ p.title }}</option>
               {% endfor %}
-            </select>
-          </td>
-          <td>
-            <select class="input sheet-cell" data-url="{{ url_for('atividades.update_field', activity_id=a.id) }}" data-field="priority">
-              {% for p in priorities %}<option value="{{ p }}" {{ 'selected' if a.priority==p else '' }}>{{ p }}</option>{% endfor %}
             </select>
           </td>
           <td><input class="input sheet-cell" type="date" data-url="{{ url_for('atividades.update_field', activity_id=a.id) }}" data-field="start_date" value="{{ a.start_date.isoformat() if a.start_date else '' }}"></td>
           <td><input class="input sheet-cell" type="date" data-url="{{ url_for('atividades.update_field', activity_id=a.id) }}" data-field="end_date" value="{{ a.end_date.isoformat() if a.end_date else '' }}"></td>
-          <td>
-            <select class="input sheet-cell" data-url="{{ url_for('atividades.update_field', activity_id=a.id) }}" data-field="status">
-              {% for s in status_list %}<option value="{{ s }}" {{ 'selected' if a.status==s else '' }}>{{ s }}</option>{% endfor %}
-            </select>
-          </td>
           <td>
             <form method="post" action="{{ url_for('atividades.delete', activity_id=a.id) }}" onsubmit="return confirm('Excluir esta atividade (e subatividades vinculadas)?');">
               <button type="submit" class="btn btn-ghost btn-sm">🗑</button>

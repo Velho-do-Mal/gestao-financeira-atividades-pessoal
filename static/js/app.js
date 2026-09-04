@@ -104,6 +104,15 @@
       .then(function () {
         el.classList.remove("sheet-cell--saving");
         el.classList.add("sheet-cell--saved");
+        // Campo "parent_id" (hierarquia de Atividades) muda a posição/
+        // indentação da linha na árvore — precisa recarregar pra
+        // reordenar e mostrar a indentação certa (as outras células só
+        // atualizam o próprio valor, sem afetar o layout das outras
+        // linhas, então não precisam de reload).
+        if (field === "parent_id") {
+          window.location.reload();
+          return;
+        }
         setTimeout(function () { el.classList.remove("sheet-cell--saved"); }, 1200);
       })
       .catch(function (err) {
