@@ -36,10 +36,17 @@ logger = logging.getLogger(__name__)
 
 # Tamanho do pool por processo. Com `gunicorn --workers 2 --threads 4`,
 # cada processo pode ter até 4 threads concorrentes pedindo conexão ao
-# mesmo tempo — MAXCONN um pouco acima disso dá folga sem exagerar no
-# número de conexões abertas no Neon (2 processos x 10 = 20 no máximo).
+# mesmo tempo. Desde a paralelização das queries da Home (ver
+# blueprints/home.py) uma ÚNICA requisição pode pedir até 7 conexões de
+# uma vez (um ThreadPoolExecutor por dentro da mesma thread do gunicorn) —
+# no pior caso (4 threads do worker todas servindo a Home ao mesmo tempo)
+# isso é até 28 conexões simultâneas num processo só. MAXCONN=20 cobre
+# esse pico com folga sem exagerar no número de conexões abertas no Neon
+# (2 processos x 20 = 40 no máximo); se getconn() estourar o pool mesmo
+# assim (pico raro de concorrência), psycopg2 levanta PoolError — nesse
+# caso considere subir DB_POOL_MAX via env em vez de mexer aqui.
 _POOL_MIN = int(os.getenv("DB_POOL_MIN", "2"))
-_POOL_MAX = int(os.getenv("DB_POOL_MAX", "10"))
+_POOL_MAX = int(os.getenv("DB_POOL_MAX", "20"))
 
 _pool = None
 _pool_lock = threading.Lock()

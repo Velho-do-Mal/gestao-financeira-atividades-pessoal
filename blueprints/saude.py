@@ -14,11 +14,12 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 from database.queries_saude import (
     get_divisions, upsert_division, delete_division, update_division_field,
     get_exercises, get_all_exercises, upsert_exercise, delete_exercise, update_exercise_field,
-    get_exercise_sets, upsert_exercise_set, delete_exercise_set, update_set_field,
+    get_exercise_sets, get_all_exercise_sets_for_division,
+    upsert_exercise_set, delete_exercise_set, update_set_field,
     get_workout_log, get_weight_history, save_workout_log,
     get_foods, upsert_food, delete_food, update_food_field, seed_foods_if_empty,
     get_meals, upsert_meal, delete_meal,
-    get_meal_items, add_meal_item, delete_meal_item,
+    get_all_meal_items_for_date, add_meal_item, delete_meal_item,
     get_daily_totals, get_macro_goals, save_macro_goals,
 )
 
@@ -117,9 +118,17 @@ def division_detail(div_id):
 
     df_ex = get_exercises(user_id, div_id)
     exercises = df_ex.to_dict("records") if df_ex is not None and not df_ex.empty else []
+
+    # Uma única query para as séries de TODOS os exercícios da divisão
+    # (evita N+1 — antes eram N queries, uma por exercício, cada uma
+    # pagando o round-trip até o banco; ver get_all_exercise_sets_for_division).
+    df_sets_all = get_all_exercise_sets_for_division(user_id, div_id)
+    sets_by_exercise = {}
+    if df_sets_all is not None and not df_sets_all.empty:
+        for _, s in df_sets_all.iterrows():
+            sets_by_exercise.setdefault(int(s["exercise_id"]), []).append(s.to_dict())
     for e in exercises:
-        df_sets = get_exercise_sets(user_id, e["id"])
-        e["sets"] = df_sets.to_dict("records") if df_sets is not None and not df_sets.empty else []
+        e["sets"] = sets_by_exercise.get(e["id"], [])
 
     return render_template("saude/division_detail.html", division=division, exercises=exercises)
 
@@ -251,12 +260,20 @@ def nutricao():
 
     df_meals = get_meals(user_id, meal_date)
     meals = df_meals.to_dict("records") if df_meals is not None and not df_meals.empty else []
+
+    # Uma única query para os itens de TODAS as refeições do dia (evita
+    # N+1 — antes eram N queries, uma por refeição; ver
+    # get_all_meal_items_for_date).
+    df_items_all = get_all_meal_items_for_date(user_id, meal_date)
+    items_by_meal = {}
+    if df_items_all is not None and not df_items_all.empty:
+        for _, it in df_items_all.iterrows():
+            items_by_meal.setdefault(int(it["meal_id"]), []).append(it.to_dict())
     for m in meals:
-        df_items = get_meal_items(user_id, m["id"])
         # Nunca usar a chave "items": em dicts, {{ m.items }} no Jinja resolve
         # para o método builtin dict.items (getattr vence sobre getitem),
         # não para esta chave — por isso "food_items".
-        m["food_items"] = df_items.to_dict("records") if df_items is not None and not df_items.empty else []
+        m["food_items"] = items_by_meal.get(m["id"], [])
         m["kcal"] = sum(float(i["item_kcal"] or 0) for i in m["food_items"])
 
     totals = get_daily_totals(user_id, meal_date)
